@@ -4,6 +4,7 @@ import { loadState } from './core/storage.js';
 import { speak, speakSlow } from './core/speech.js';
 import { allVocabIds } from './data/vocab.js';
 import { dueCardIds } from './core/srs.js';
+import { initAutoSync, syncStatus, isEnabled as autoSyncEnabled } from './core/autosync.js';
 
 import { renderDashboard } from './views/dashboard.js';
 import { renderRoadmap } from './views/roadmap.js';
@@ -62,6 +63,18 @@ function navigate(target) {
   window.scrollTo(0, 0);
 }
 
+/** Короткая строка о состоянии синхронизации — чтобы она не была невидимой. */
+function syncBadge() {
+  const { state, at, error } = syncStatus();
+  if (state === 'syncing') return '<span class="faint">↻ синхронизация…</span>';
+  if (state === 'error') return `<span style="color:var(--amber)" title="${error}">⚠ не синхронизировано</span>`;
+  if (state === 'ok' && at) {
+    const mins = Math.round((Date.now() - at) / 60000);
+    return `<span class="faint">✓ ${mins < 1 ? 'только что' : `${mins} мин назад`}</span>`;
+  }
+  return '<span class="faint">↕ автосинхронизация</span>';
+}
+
 function renderBody() {
   switch (route.name) {
     case 'dashboard':
@@ -104,6 +117,7 @@ function render() {
         <div class="sidebar-footer">
           🔥 ${state.streak} дн. подряд<br />
           ⭐ ${state.xp} XP
+          ${autoSyncEnabled() ? `<br />${syncBadge()}` : ''}
         </div>
       </aside>
       <main class="main">${renderBody()}</main>
@@ -325,6 +339,23 @@ app.addEventListener('keydown', (e) => {
 });
 
 render();
+
+/**
+ * Автосинхронизация: полная перерисовка только когда слияние принесло
+ * чужие изменения, иначе обновляем один значок — иначе ре-рендер посреди
+ * урока сбивал бы ввод.
+ */
+initAutoSync((mergedSomething) => {
+  if (mergedSomething) {
+    render();
+    return;
+  }
+  const footer = document.querySelector('.sidebar-footer');
+  if (footer && autoSyncEnabled()) {
+    const state = loadState();
+    footer.innerHTML = `🔥 ${state.streak} дн. подряд<br />⭐ ${state.xp} XP<br />${syncBadge()}`;
+  }
+});
 
 /**
  * Service worker подключаем только в собранной версии: в режиме разработки

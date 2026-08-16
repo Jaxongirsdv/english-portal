@@ -117,6 +117,17 @@ export function renderSettings() {
                   </div>
                   <button class="btn btn-primary" data-action="sync">Синхронизировать</button>
                 </div>
+
+                <label class="row mt-6" style="cursor:pointer">
+                  <input type="checkbox" data-setting="autoSync" ${st.settings.autoSync !== false ? 'checked' : ''} />
+                  <span>Синхронизировать автоматически</span>
+                </label>
+                <div class="faint">
+                  При запуске, через паузу после занятий и когда вкладка уходит
+                  в фон. Последнее важно на телефоне: браузер может выгрузить
+                  страницу без предупреждения.
+                </div>
+
                 <div class="row mt-4">
                   <button class="btn btn-ghost" data-action="forget-sync"
                           style="color:var(--red)">Отключить</button>
@@ -168,6 +179,7 @@ export function handleSettingChange(key, value) {
     if (key === 'voiceRate') s.settings.voiceRate = Number(value);
     if (key === 'dailyGoal') s.settings.dailyGoal = Number(value);
     if (key === 'autoSpeak') s.settings.autoSpeak = !!value;
+    if (key === 'autoSync') s.settings.autoSync = !!value;
   });
 }
 

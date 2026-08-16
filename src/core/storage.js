@@ -34,6 +34,8 @@ const DEFAULT_STATE = {
     githubToken: '',
     gistId: '',
     lastSyncAt: null,
+    /** Автоматическая синхронизация. Выключается, если фоновые запросы не нужны. */
+    autoSync: true,
   },
 };
 
@@ -66,9 +68,24 @@ export function loadState() {
   return state;
 }
 
+/** Подписчики на изменение прогресса — на них держится автосинхронизация. */
+const saveListeners = new Set();
+
+export function onSave(listener) {
+  saveListeners.add(listener);
+  return () => saveListeners.delete(listener);
+}
+
 export function saveState() {
   if (!state) return;
   localStorage.setItem(KEY, JSON.stringify(state));
+  for (const listener of saveListeners) {
+    try {
+      listener();
+    } catch {
+      // Подписчик не должен ломать сохранение прогресса
+    }
+  }
 }
 
 export function update(mutator) {
