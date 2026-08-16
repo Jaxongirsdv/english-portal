@@ -247,7 +247,10 @@ export function describeError(err) {
   if (status === 401 || status === 403) return 'Ключ не принят. Проверь его в «Настройках».';
   if (status === 429) return 'Исчерпан лимит запросов. Подожди немного и попробуй снова.';
   if (status >= 500) return 'Сервис временно недоступен. Попробуй позже.';
-  if (err?.name === 'APIConnectionError' || !navigator.onLine) {
+  // На сеть жалуемся, только если ответа не было вовсе: раз сервис
+  // ответил кодом, связь есть, и подмена причины лишь запутает
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  if (err?.name === 'APIConnectionError' || (!status && offline)) {
     return 'Нет связи. Проверка письма — единственный раздел, которому нужен интернет.';
   }
   return `Не удалось проверить: ${err?.detail || err?.message || 'неизвестная ошибка'}`;

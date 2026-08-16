@@ -175,7 +175,13 @@ export async function connectExisting(gistId) {
 
 export function describeError(err) {
   if (err?.message === 'no-token') return 'Не задан токен GitHub. Добавь его в «Настройках».';
-  if (!navigator.onLine) return 'Нет связи. Синхронизация возможна только онлайн.';
+
+  // Про отсутствие связи говорим, только если ответа не было вовсе:
+  // раз GitHub ответил кодом, мы очевидно онлайн, и жаловаться на сеть
+  // значит скрыть настоящую причину
+  if (!err?.status && typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return 'Нет связи. Синхронизация возможна только онлайн.';
+  }
 
   // Своими словами объясняем, что делать, а причину цитируем от GitHub:
   // по одному коду ответа её надёжно не определить
