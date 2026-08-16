@@ -18,6 +18,7 @@ import {
   doImport,
   handleSaveKey,
   handleForgetKey,
+  handleProviderChange,
   handleSaveSync,
   handleSync,
   handleForgetSync,
@@ -260,6 +261,13 @@ app.addEventListener('click', (e) => {
   if (filter) {
     setFilter(filter.dataset.filter);
     render();
+    return;
+  }
+
+  // Выбор провайдера проверки письма
+  const aiProvider = target('[data-ai-provider]');
+  if (aiProvider) {
+    if (handleProviderChange(aiProvider.dataset.aiProvider)) render();
     return;
   }
 

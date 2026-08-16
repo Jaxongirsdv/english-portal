@@ -27,8 +27,10 @@ const DEFAULT_STATE = {
     voiceRate: 0.9,
     autoSpeak: true,
     dailyGoal: 20,
-    /** Ключ Claude API. Пустая строка = AI-раздел выключен. */
-    apiKey: '',
+    /** Ключи проверки письма. Пусто = раздел выключен. */
+    apiKey: '', // Claude
+    geminiKey: '', // Gemini
+    aiProvider: 'gemini',
     writingLevel: 'A1',
     /** Синхронизация через приватный GitHub Gist. Пусто = выключена. */
     githubToken: '',
@@ -108,7 +110,7 @@ export function resetState() {
  * пропущенный в экспорте секрет утечёт в скачанный файл, пропущенный
  * в импорте — молча сотрётся при восстановлении бэкапа.
  */
-const DEVICE_SECRETS = ['apiKey', 'githubToken'];
+const DEVICE_SECRETS = ['apiKey', 'geminiKey', 'githubToken'];
 
 /**
  * Бэкап прогресса — БЕЗ секретов.

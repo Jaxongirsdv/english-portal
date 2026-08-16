@@ -1,6 +1,6 @@
 import { tasksForLevel, LEVELS } from '../data/writing-tasks.js';
 import { loadState, update, addXp, touchStudyDay } from '../core/storage.js';
-import { hasKey, reviewWriting, describeError } from '../core/ai.js';
+import { hasKey, reviewWriting, describeError, PROVIDERS, currentProvider } from '../core/ai.js';
 import { esc, shuffle, plural, speakBtn } from '../core/ui.js';
 
 /**
@@ -95,30 +95,30 @@ export function refreshCounter() {
 }
 
 function renderNoKey() {
+  const info = PROVIDERS[currentProvider()];
   return `
     <h1>Письмо</h1>
-    <p class="subtitle">Единственный раздел, которому нужен интернет и ключ API.</p>
+    <p class="subtitle">Единственный раздел, которому нужен интернет и ключ.</p>
 
     <div class="callout warn">
       <span class="callout-label">Не подключено</span>
-      Проверка письменных работ идёт через Claude API и требует твоего
-      собственного ключа. Без него раздел не работает — остальной портал
-      от этого не страдает.
+      Проверка письменных работ требует твоего собственного ключа.
+      Без него раздел не работает — остальной портал от этого не страдает.
     </div>
 
     <div class="card mt-4">
       <h3 style="margin-top:0">Как подключить</h3>
       <ol class="dim" style="padding-left:20px;line-height:1.9">
-        <li>Заведи ключ в консоли Anthropic: <span class="word-ipa">console.anthropic.com</span></li>
-        <li>Вставь его в «Настройках» портала</li>
-        <li>Вернись сюда</li>
+        <li>Выбран провайдер <strong>${esc(info.label)}</strong>${info.free ? ' — бесплатный' : ''}. Сменить можно в «Настройках»</li>
+        <li>Заведи ключ: <span class="word-ipa">${esc(info.console)}</span></li>
+        <li>Вставь его в «Настройках» портала и вернись сюда</li>
       </ol>
       <div class="callout warn mt-4">
         <span class="callout-label">Про безопасность честно</span>
         Ключ хранится в localStorage этого браузера и виден любому, кто
-        откроет консоль разработчика на этой машине. Для личного портала
-        на своём компьютере это приемлемо. Не вставляй ключ на чужом
-        устройстве и не выкладывай собранную версию с ключом в интернет.
+        откроет консоль разработчика на этой машине. Поэтому на сайте,
+        доступном из интернета, разумнее бесплатный провайдер: утечка
+        такого ключа не стоит денег.
       </div>
       <button class="btn btn-primary mt-4" data-nav="settings">Открыть настройки</button>
     </div>

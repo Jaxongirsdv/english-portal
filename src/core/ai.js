@@ -1,62 +1,64 @@
 /**
- * Проверка письменных работ через Claude API.
+ * Проверка письменных работ. Провайдер выбирается в настройках.
  *
- * Слой полностью необязателен: без ключа портал работает как раньше,
- * а этот раздел честно объясняет, чего не хватает. Ключ хранится
- * в localStorage и никуда, кроме api.anthropic.com, не уходит.
+ * Поддерживаются два:
+ *   claude — разбор заметно тоньше, но платный;
+ *   gemini — бесплатный уровень без карты, качества хватает для разбора
+ *            школьных ошибок.
  *
- * О безопасности прямо: браузерный вызов означает, что ключ лежит
- * в этом браузере и виден любому, кто откроет консоль. Для личного
- * портала на своей машине это приемлемый размен, для публичного
- * сайта — нет. Подробнее в README.
+ * У бесплатного варианта есть неочевидное преимущество именно здесь:
+ * ключ живёт в браузере, и утечка бесплатного ключа не стоит денег.
+ * Для портала, выложенного в интернет, это весомее разницы в качестве.
+ *
+ * Слой полностью необязателен: без ключа портал работает как раньше.
  */
 
 import { loadState, update } from './storage.js';
 
-const MODEL = 'claude-opus-5';
+/* ---------- Общая схема разбора ---------- */
 
-/** Структура разбора. Схема гарантирует, что ответ разберётся без парсинга текста. */
-const REVIEW_SCHEMA = {
-  type: 'object',
-  properties: {
-    corrected: {
-      type: 'string',
-      description: 'Исправленный текст целиком, естественный английский',
-    },
-    errors: {
-      type: 'array',
-      description: 'Найденные ошибки, каждая отдельно',
-      items: {
-        type: 'object',
-        properties: {
-          original: { type: 'string', description: 'Фрагмент как написал ученик' },
-          fixed: { type: 'string', description: 'Как должно быть' },
-          kind: {
-            type: 'string',
-            enum: ['grammar', 'vocabulary', 'word-order', 'article', 'preposition', 'spelling', 'style'],
-          },
-          explanation: {
-            type: 'string',
-            description: 'Объяснение на русском языке, одно-два предложения',
-          },
+/**
+ * Структура ответа. Схема нужна обоим провайдерам: без неё пришлось бы
+ * выковыривать разбор из свободного текста, и любая смена формулировки
+ * модели ломала бы приложение.
+ */
+const REVIEW_FIELDS = {
+  corrected: {
+    type: 'string',
+    description: 'Исправленный текст целиком, естественный английский',
+  },
+  errors: {
+    type: 'array',
+    description: 'Найденные ошибки, каждая отдельно',
+    items: {
+      type: 'object',
+      properties: {
+        original: { type: 'string', description: 'Фрагмент как написал ученик' },
+        fixed: { type: 'string', description: 'Как должно быть' },
+        kind: {
+          type: 'string',
+          enum: ['grammar', 'vocabulary', 'word-order', 'article', 'preposition', 'spelling', 'style'],
         },
-        required: ['original', 'fixed', 'kind', 'explanation'],
-        additionalProperties: false,
+        explanation: {
+          type: 'string',
+          description: 'Объяснение на русском языке, одно-два предложения',
+        },
       },
-    },
-    comment: {
-      type: 'string',
-      description: 'Общий комментарий на русском: что удалось, над чем работать',
-    },
-    level: {
-      type: 'string',
-      enum: ['A0', 'A1', 'A2', 'B1', 'B2', 'C1'],
-      description: 'Уровень, которому соответствует текст',
+      required: ['original', 'fixed', 'kind', 'explanation'],
     },
   },
-  required: ['corrected', 'errors', 'comment', 'level'],
-  additionalProperties: false,
+  comment: {
+    type: 'string',
+    description: 'Общий комментарий на русском: что удалось, над чем работать',
+  },
+  level: {
+    type: 'string',
+    enum: ['A0', 'A1', 'A2', 'B1', 'B2', 'C1'],
+    description: 'Уровень, которому соответствует текст',
+  },
 };
+
+const REQUIRED = ['corrected', 'errors', 'comment', 'level'];
 
 const SYSTEM = `Ты — преподаватель английского языка, который проверяет письменные работы русскоязычных учеников.
 
@@ -69,106 +71,189 @@ const SYSTEM = `Ты — преподаватель английского яз�
 
 Если ошибок нет, верни пустой список и скажи об этом в комментарии.`;
 
-export function hasKey() {
-  const key = loadState().settings.apiKey;
-  return typeof key === 'string' && key.trim().length > 0;
-}
-
-export function saveKey(key) {
-  update((s) => {
-    s.settings.apiKey = (key || '').trim();
-  });
-}
-
-export function forgetKey() {
-  update((s) => {
-    s.settings.apiKey = '';
-  });
-}
-
-/** Маска для показа в настройках — полный ключ на экран не выводим. */
-export function maskedKey() {
-  const key = loadState().settings.apiKey || '';
-  if (key.length < 12) return key ? '••••' : '';
-  return `${key.slice(0, 7)}…${key.slice(-4)}`;
-}
-
-/**
- * SDK подгружаем по требованию: он нужен только здесь, и незачем
- * тащить его в основной бандл, который должен открываться офлайн.
- */
-let clientPromise = null;
-
-async function getClient() {
-  const apiKey = loadState().settings.apiKey;
-  if (!apiKey) throw new Error('no-key');
-
-  if (!clientPromise) {
-    clientPromise = import('@anthropic-ai/sdk').then(({ default: Anthropic }) => Anthropic);
-  }
-  const Anthropic = await clientPromise;
-
-  return new Anthropic({
-    apiKey,
-    // Портал живёт в браузере: без этого флага SDK откажется работать.
-    dangerouslyAllowBrowser: true,
-  });
-}
-
-/** Понятные сообщения вместо кодов ошибок. */
-export function describeError(err) {
-  if (err?.message === 'no-key') {
-    return 'Не задан ключ API. Добавь его в «Настройках».';
-  }
-  const status = err?.status;
-  if (status === 401) return 'Ключ API не принят. Проверь его в «Настройках».';
-  if (status === 403) return 'У ключа нет доступа к этой модели.';
-  if (status === 429) return 'Слишком много запросов. Подожди минуту и попробуй снова.';
-  if (status === 400) return `Запрос отклонён: ${err.message}`;
-  if (status >= 500) return 'Сервис временно недоступен. Попробуй позже.';
-  if (err?.name === 'APIConnectionError' || !navigator.onLine) {
-    return 'Нет связи. Проверка письма — единственный раздел, которому нужен интернет.';
-  }
-  return `Не удалось проверить: ${err?.message || 'неизвестная ошибка'}`;
-}
-
-/**
- * Отправляет работу на проверку.
- * Возвращает объект по схеме REVIEW_SCHEMA.
- */
-export async function reviewWriting({ task, text, level }) {
-  const client = await getClient();
-
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 16000,
-    system: SYSTEM,
-    // Задача узкая и хорошо описанная — средний уровень усилий здесь
-    // даёт то же качество разбора заметно дешевле.
-    output_config: {
-      effort: 'medium',
-      format: { type: 'json_schema', schema: REVIEW_SCHEMA },
-    },
-    messages: [
-      {
-        role: 'user',
-        content: `Уровень ученика: ${level}.
+function buildTask({ task, text, level }) {
+  return `Уровень ученика: ${level}.
 Задание: ${task}
 
 Работа ученика:
 """
 ${text}
-"""`,
+"""`;
+}
+
+/* ---------- Провайдеры ---------- */
+
+export const PROVIDERS = {
+  claude: {
+    label: 'Claude',
+    keyField: 'apiKey',
+    keyHint: 'sk-ant-…',
+    console: 'console.anthropic.com',
+    free: false,
+    note: 'Разбор тоньше, но каждая проверка платная.',
+  },
+  gemini: {
+    label: 'Gemini',
+    keyField: 'geminiKey',
+    keyHint: 'AIza…',
+    console: 'aistudio.google.com/apikey',
+    free: true,
+    note: 'Бесплатный уровень без привязки карты. Для разбора школьных ошибок этого достаточно.',
+  },
+};
+
+export function currentProvider() {
+  const p = loadState().settings.aiProvider;
+  return PROVIDERS[p] ? p : 'gemini';
+}
+
+export function setProvider(name) {
+  if (!PROVIDERS[name]) return;
+  update((s) => {
+    s.settings.aiProvider = name;
+  });
+}
+
+export function hasKey(provider = currentProvider()) {
+  const field = PROVIDERS[provider].keyField;
+  const key = loadState().settings[field];
+  return typeof key === 'string' && key.trim().length > 0;
+}
+
+export function saveKey(key, provider = currentProvider()) {
+  const field = PROVIDERS[provider].keyField;
+  update((s) => {
+    s.settings[field] = (key || '').trim();
+  });
+}
+
+export function forgetKey(provider = currentProvider()) {
+  const field = PROVIDERS[provider].keyField;
+  update((s) => {
+    s.settings[field] = '';
+  });
+}
+
+/** Маска для показа в настройках — полный ключ на экран не выводим. */
+export function maskedKey(provider = currentProvider()) {
+  const key = loadState().settings[PROVIDERS[provider].keyField] || '';
+  if (key.length < 12) return key ? '••••' : '';
+  return `${key.slice(0, 6)}…${key.slice(-4)}`;
+}
+
+function keyOf(provider) {
+  const key = loadState().settings[PROVIDERS[provider].keyField];
+  if (!key) throw new Error('no-key');
+  return key;
+}
+
+/* ---------- Claude ---------- */
+
+/**
+ * SDK подгружаем по требованию: он нужен только здесь, и незачем тащить
+ * его в основной бандл, который должен открываться офлайн.
+ */
+let anthropicPromise = null;
+
+async function reviewWithClaude(input) {
+  const apiKey = keyOf('claude');
+  if (!anthropicPromise) {
+    anthropicPromise = import('@anthropic-ai/sdk').then(({ default: A }) => A);
+  }
+  const Anthropic = await anthropicPromise;
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+
+  const response = await client.messages.create({
+    model: 'claude-opus-5',
+    max_tokens: 16000,
+    system: SYSTEM,
+    // Задача узкая и хорошо описанная — средний уровень усилий даёт
+    // то же качество разбора заметно дешевле
+    output_config: {
+      effort: 'medium',
+      format: {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: REVIEW_FIELDS,
+          required: REQUIRED,
+          additionalProperties: false,
+        },
       },
-    ],
+    },
+    messages: [{ role: 'user', content: buildTask(input) }],
   });
 
   if (response.stop_reason === 'refusal') {
     throw new Error('Модель отказалась разбирать этот текст.');
   }
-
   const block = response.content.find((b) => b.type === 'text');
   if (!block) throw new Error('Пустой ответ от модели.');
-
   return JSON.parse(block.text);
+}
+
+/* ---------- Gemini ---------- */
+
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+const GEMINI_MODEL = 'gemini-3.6-flash';
+
+async function reviewWithGemini(input) {
+  const apiKey = keyOf('gemini');
+
+  const response = await fetch(GEMINI_URL, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: GEMINI_MODEL,
+      // Отдельного поля для системной инструкции здесь нет — кладём её
+      // в начало запроса
+      input: `${SYSTEM}\n\n${buildTask(input)}`,
+      response_format: {
+        type: 'text',
+        mime_type: 'application/json',
+        // Без additionalProperties: схему принимает не любой набор
+        // ключевых слов JSON Schema
+        schema: { type: 'object', properties: REVIEW_FIELDS, required: REQUIRED },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const err = new Error(`gemini-${response.status}`);
+    err.status = response.status;
+    try {
+      const body = await response.json();
+      err.detail = body?.error?.message || body?.[0]?.error?.message;
+    } catch {
+      /* тело может быть не JSON */
+    }
+    throw err;
+  }
+
+  const data = await response.json();
+  const step = data.steps?.find((s) => s.type === 'model_output') || data.steps?.at(-1);
+  const text = step?.content?.find((c) => c.type === 'text')?.text;
+  if (!text) throw new Error('Пустой ответ от модели.');
+  return JSON.parse(text);
+}
+
+/* ---------- Общая точка входа ---------- */
+
+export function describeError(err) {
+  if (err?.message === 'no-key') return 'Не задан ключ. Добавь его в «Настройках».';
+
+  const status = err?.status;
+  if (status === 400 && err.detail) return `Запрос отклонён: ${err.detail}`;
+  if (status === 401 || status === 403) return 'Ключ не принят. Проверь его в «Настройках».';
+  if (status === 429) return 'Исчерпан лимит запросов. Подожди немного и попробуй снова.';
+  if (status >= 500) return 'Сервис временно недоступен. Попробуй позже.';
+  if (err?.name === 'APIConnectionError' || !navigator.onLine) {
+    return 'Нет связи. Проверка письма — единственный раздел, которому нужен интернет.';
+  }
+  return `Не удалось проверить: ${err?.detail || err?.message || 'неизвестная ошибка'}`;
+}
+
+/** Отправляет работу на проверку выбранным провайдером. */
+export async function reviewWriting(input) {
+  return currentProvider() === 'claude' ? reviewWithClaude(input) : reviewWithGemini(input);
 }

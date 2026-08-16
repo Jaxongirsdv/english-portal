@@ -1,6 +1,14 @@
 import { loadState, update, resetState, exportState, importState } from '../core/storage.js';
 import { isSupported, hasEnglishVoice, speak } from '../core/speech.js';
-import { hasKey, saveKey, forgetKey, maskedKey } from '../core/ai.js';
+import {
+  hasKey,
+  saveKey,
+  forgetKey,
+  maskedKey,
+  PROVIDERS,
+  currentProvider,
+  setProvider,
+} from '../core/ai.js';
 import {
   isConfigured as syncConfigured,
   syncInfo,
@@ -61,36 +69,52 @@ export function renderSettings() {
       <div class="faint">15–25 в день — устойчивый темп, который реально выдержать месяцами.</div>
     </div>
 
+    ${(() => {
+      const provider = currentProvider();
+      const info = PROVIDERS[provider];
+      return `
     <div class="card mb-4">
-      <h3 style="margin-top:0">Проверка письма (Claude API)</h3>
+      <h3 style="margin-top:0">Проверка письма</h3>
       <p class="faint">
         Необязательный раздел. Без ключа портал работает полностью —
         не работает только проверка письменных работ.
       </p>
 
+      <div class="row mt-4" style="gap:6px">
+        ${Object.entries(PROVIDERS)
+          .map(
+            ([name, p]) => `<button class="chip"
+              style="${provider === name ? 'border-color:var(--accent);color:var(--accent)' : ''}"
+              data-ai-provider="${name}">${esc(p.label)}${p.free ? ' · бесплатно' : ''}</button>`,
+          )
+          .join('')}
+      </div>
+      <div class="faint mt-2">${esc(info.note)}</div>
+
       ${
-        hasKey()
+        hasKey(provider)
           ? `<div class="row-between mt-4">
               <div>
-                <div>Ключ подключён</div>
-                <div class="word-ipa">${esc(maskedKey())}</div>
+                <div>Ключ ${esc(info.label)} подключён</div>
+                <div class="word-ipa">${esc(maskedKey(provider))}</div>
               </div>
-              <button class="btn" data-action="forget-key" style="color:var(--red);border-color:var(--red)">Удалить ключ</button>
+              <button class="btn" data-action="forget-key" style="color:var(--red);border-color:var(--red)">Удалить</button>
             </div>`
           : `<input class="text-input mt-4" data-api-key type="password"
-                 placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+                 placeholder="${esc(info.keyHint)}" autocomplete="off" spellcheck="false" />
+             <div class="faint mt-2">Ключ заводится на ${esc(info.console)}</div>
              <button class="btn btn-primary mt-4" data-action="save-key">Сохранить ключ</button>`
       }
 
       <div class="callout warn mt-4">
         <span class="callout-label">Где лежит ключ</span>
-        В localStorage этого браузера. Любой, кто откроет консоль
-        разработчика на этой машине, увидит его. Для личного портала
-        на своём компьютере это приемлемо; на общем устройстве ключ
-        вводить не стоит, а собранную версию с ключом нельзя выкладывать
-        в интернет. В бэкап прогресса ключ не попадает.
+        В localStorage этого браузера — его увидит любой, кто откроет
+        консоль разработчика на этой машине. Поэтому на публичном сайте
+        безопаснее бесплатный провайдер: утечка такого ключа не стоит
+        денег. В бэкап прогресса ключи не попадают.
       </div>
-    </div>
+    </div>`;
+    })()}
 
     <div class="card mb-4">
       <h3 style="margin-top:0">Синхронизация между устройствами</h3>
@@ -209,11 +233,16 @@ export function handleSaveKey() {
 }
 
 export function handleForgetKey() {
-  if (confirm('Удалить ключ API? Проверка письма перестанет работать.')) {
+  if (confirm('Удалить ключ? Проверка письма перестанет работать.')) {
     forgetKey();
     return true;
   }
   return false;
+}
+
+export function handleProviderChange(name) {
+  setProvider(name);
+  return true;
 }
 
 /* ---------- Синхронизация ---------- */
