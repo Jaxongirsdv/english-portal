@@ -30,6 +30,20 @@ let lastRun = 0;
 let timer = null;
 let notify = () => {};
 
+/**
+ * Пока идёт обмен, собственные сохранения не считаются изменениями.
+ *
+ * Без этого получался вечный цикл: синхронизация сохраняет состояние,
+ * сохранение будит подписчика, тот помечает «есть изменения» и ставит
+ * следующий обмен — и так каждые 20 секунд, даже когда пользователь
+ * ничего не делает. За несколько часов это исчерпывает суточный лимит
+ * запросов к GitHub.
+ */
+let applyingSync = false;
+
+/** До этого времени не пытаемся: GitHub ответил, что лимит исчерпан. */
+let backoffUntil = 0;
+
 /** Состояние для показа в интерфейсе. */
 let status = { state: 'idle', at: null, error: null };
 
@@ -50,14 +64,15 @@ export function isEnabled() {
 async function run(reason) {
   if (!isEnabled() || running) return;
   if (!navigator.onLine) return;
+  if (Date.now() < backoffUntil) return;
   if (Date.now() - lastRun < MIN_INTERVAL && reason !== 'hidden') return;
 
   running = true;
+  applyingSync = true;
   setStatus({ state: 'syncing', error: null });
   try {
     const before = JSON.stringify(loadState().cards);
     await sync();
-    dirty = false;
     lastRun = Date.now();
     const changed = JSON.stringify(loadState().cards) !== before;
     setStatus({ state: 'ok', at: Date.now(), error: null });
@@ -65,9 +80,18 @@ async function run(reason) {
     // лишний ре-рендер посреди занятия сбил бы ввод
     if (changed) notify(true);
   } catch (err) {
+    // Исчерпанный лимит нельзя пересиживать повторными попытками —
+    // они его же и продлевают. Ждём час, пока окно не сбросится.
+    if (err?.status === 403 && /rate limit/i.test(err?.detail || '')) {
+      backoffUntil = Date.now() + 60 * 60 * 1000;
+    }
     setStatus({ state: 'error', error: err?.message || 'ошибка' });
   } finally {
     running = false;
+    // Сначала гасим отметку об изменениях, потом снимаем подавление:
+    // иначе собственное сохранение синхронизации снова пометит состояние
+    dirty = false;
+    applyingSync = false;
   }
 }
 
@@ -84,7 +108,9 @@ export function initAutoSync(onChange) {
   notify = (rerender) => onChange?.(rerender === true);
 
   onSave(() => {
-    if (!isEnabled()) return;
+    // Сохранения самой синхронизации изменениями не считаются —
+    // иначе она бесконечно перезапускала бы себя
+    if (applyingSync || !isEnabled()) return;
     dirty = true;
     scheduleIdle();
   });
