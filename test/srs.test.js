@@ -1,0 +1,188 @@
+/**
+ * Проверка алгоритма интервальных повторений.
+ * Запуск: node --test test/
+ *
+ * localStorage подменяем заглушкой — модули storage/srs больше
+ * ни от чего браузерного не зависят.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+const store = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (store.has(k) ? store.get(k) : null),
+  setItem: (k, v) => store.set(k, String(v)),
+  removeItem: (k) => store.delete(k),
+};
+
+const {
+  review,
+  getCard,
+  dueCardIds,
+  newRecognitionIds,
+  newProductionIds,
+  cardId,
+  parseCardId,
+  wordProgress,
+  stats,
+  GRADE,
+  DIRECTION,
+  PROD_UNLOCK_AFTER,
+} = await import('../src/core/srs.js');
+const { resetState, today, toISODate } = await import('../src/core/storage.js');
+
+function daysFromToday(dateStr) {
+  const a = new Date(today() + 'T00:00:00');
+  const b = new Date(dateStr + 'T00:00:00');
+  return Math.round((b - a) / 86400000);
+}
+
+test('интервалы растут по схеме 1 → 6 → ~15 дней', () => {
+  resetState();
+  let c = review('word', GRADE.GOOD);
+  assert.equal(c.reps, 1);
+  assert.equal(c.interval, 1);
+  assert.equal(daysFromToday(c.due), 1, 'первый повтор — завтра');
+
+  c = review('word', GRADE.GOOD);
+  assert.equal(c.interval, 6);
+  assert.equal(daysFromToday(c.due), 6);
+
+  c = review('word', GRADE.GOOD);
+  assert.equal(c.interval, 15, 'третий интервал = 6 × ease(2.5)');
+  assert.equal(daysFromToday(c.due), 15);
+});
+
+test('дата повтора считается по локальному времени, а не по UTC', () => {
+  resetState();
+  const c = review('tz', GRADE.GOOD);
+  // Наивный toISOString() в поясе UTC+5 дал бы «сегодня» вместо «завтра»
+  assert.equal(c.due, toISODate(new Date(Date.now() + 86400000)));
+});
+
+test('забытое слово сбрасывает цикл и снижает лёгкость', () => {
+  resetState();
+  review('hard', GRADE.GOOD);
+  review('hard', GRADE.GOOD);
+  const before = getCard('hard').ease;
+
+  const c = review('hard', GRADE.AGAIN);
+  assert.equal(c.reps, 0, 'счётчик повторов обнуляется');
+  assert.equal(c.interval, 0);
+  assert.equal(c.lapses, 1);
+  assert.ok(c.ease < before, 'лёгкость падает');
+  assert.equal(c.due, today(), 'слово возвращается в эту же сессию');
+});
+
+test('лёгкость не опускается ниже 1.3', () => {
+  resetState();
+  for (let i = 0; i < 20; i++) review('tough', GRADE.AGAIN);
+  assert.ok(getCard('tough').ease >= 1.3);
+});
+
+test('оценка «легко» даёт больший интервал, чем «трудно»', () => {
+  resetState();
+  review('easy', GRADE.EASY);
+  review('easy', GRADE.EASY);
+  review('easy', GRADE.EASY);
+
+  review('hardish', GRADE.HARD);
+  review('hardish', GRADE.HARD);
+  review('hardish', GRADE.HARD);
+
+  assert.ok(
+    getCard('easy').interval > getCard('hardish').interval,
+    `easy=${getCard('easy').interval} должен быть больше hard=${getCard('hardish').interval}`,
+  );
+});
+
+test('очереди: новое слово не попадает в повторение, изученное — попадает', () => {
+  resetState();
+  review('seen', GRADE.AGAIN); // due = сегодня
+  const ids = ['seen', 'unseen'];
+
+  assert.deepEqual(newRecognitionIds(ids), ['unseen']);
+  assert.deepEqual(dueCardIds(ids), ['seen']);
+
+  // Слово с интервалом в будущем сегодня не показывается
+  resetState();
+  review('future', GRADE.GOOD);
+  assert.deepEqual(dueCardIds(['future']), []);
+});
+
+/* ---------- Две стороны карточки ---------- */
+
+function masterSide(wordId, direction) {
+  const id = cardId(wordId, direction);
+  for (let i = 0; i < 4; i++) review(id, GRADE.GOOD); // 1, 6, 15, 37 дней
+}
+
+test('id карточки узнавания совпадает с id слова — старый прогресс не теряется', () => {
+  assert.equal(cardId('hello', DIRECTION.REC), 'hello');
+  assert.deepEqual(parseCardId('hello'), { wordId: 'hello', direction: DIRECTION.REC });
+
+  const prodId = cardId('hello', DIRECTION.PROD);
+  assert.notEqual(prodId, 'hello');
+  assert.deepEqual(parseCardId(prodId), { wordId: 'hello', direction: DIRECTION.PROD });
+});
+
+test('стороны живут своими интервалами и не мешают друг другу', () => {
+  resetState();
+  review(cardId('w', DIRECTION.REC), GRADE.GOOD);
+  review(cardId('w', DIRECTION.REC), GRADE.GOOD);
+
+  const p = wordProgress('w');
+  assert.equal(p.rec.interval, 6);
+  assert.equal(p.prod, null, 'обратная сторона ещё не заведена');
+
+  review(cardId('w', DIRECTION.PROD), GRADE.GOOD);
+  assert.equal(wordProgress('w').rec.interval, 6, 'узнавание не сбилось');
+  assert.equal(wordProgress('w').prod.interval, 1);
+});
+
+test('воспроизведение открывается только после закрепления узнавания', () => {
+  resetState();
+  const ids = ['w'];
+  assert.deepEqual(newProductionIds(ids), [], 'без узнавания обратной стороны нет');
+
+  review(cardId('w', DIRECTION.REC), GRADE.GOOD); // reps = 1
+  assert.deepEqual(newProductionIds(ids), [], `нужно ${PROD_UNLOCK_AFTER} успешных узнавания`);
+
+  review(cardId('w', DIRECTION.REC), GRADE.GOOD); // reps = 2
+  assert.deepEqual(newProductionIds(ids), ['w'], 'теперь можно тренировать речь');
+
+  review(cardId('w', DIRECTION.PROD), GRADE.GOOD);
+  assert.deepEqual(newProductionIds(ids), [], 'дважды не открывается');
+});
+
+test('слово выучено только когда обе стороны дожили до 21 дня', () => {
+  resetState();
+  const ids = ['w'];
+
+  masterSide('w', DIRECTION.REC);
+  assert.ok(wordProgress('w').recMastered);
+  assert.equal(stats(ids).mastered, 0, 'узнавания мало — говорить всё ещё нельзя');
+  assert.equal(stats(ids).learning, 1);
+
+  masterSide('w', DIRECTION.PROD);
+  assert.equal(stats(ids).mastered, 1);
+  assert.equal(stats(ids).learning, 0);
+});
+
+test('к повторению попадают обе стороны', () => {
+  resetState();
+  review(cardId('w', DIRECTION.REC), GRADE.AGAIN); // due = сегодня
+  review(cardId('w', DIRECTION.PROD), GRADE.AGAIN);
+
+  const due = dueCardIds(['w']);
+  assert.equal(due.length, 2);
+  assert.ok(due.includes(cardId('w', DIRECTION.REC)));
+  assert.ok(due.includes(cardId('w', DIRECTION.PROD)));
+});
+
+test('newRecognitionIds не возвращает уже заведённые слова', () => {
+  resetState();
+  assert.deepEqual(newRecognitionIds(['a', 'b']), ['a', 'b']);
+  review(cardId('a', DIRECTION.REC), GRADE.GOOD);
+  assert.deepEqual(newRecognitionIds(['a', 'b']), ['b']);
+});

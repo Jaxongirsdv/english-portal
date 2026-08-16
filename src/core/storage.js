@@ -1,0 +1,163 @@
+/**
+ * Хранилище прогресса. Всё живёт в localStorage — никакого сервера,
+ * портал полностью работает офлайн.
+ */
+
+const KEY = 'english-portal:v1';
+
+const DEFAULT_STATE = {
+  createdAt: null,
+  level: 'A0',
+  xp: 0,
+  streak: 0,
+  lastStudyDate: null,
+  /** id урока -> { completedAt, score } */
+  lessons: {},
+  /** id слова -> карточка SRS (см. core/srs.js) */
+  cards: {},
+  /** дата (YYYY-MM-DD) -> сколько повторений сделано */
+  history: {},
+  /** id слова -> { attempts, exact, close } — статистика произношения */
+  pronunciation: {},
+  /** { attempts, perfect } — статистика диктантов */
+  listening: { attempts: 0, perfect: 0 },
+  /** { checked, errorsFound } — статистика проверок письма */
+  writing: { checked: 0, errorsFound: 0 },
+  settings: {
+    voiceRate: 0.9,
+    autoSpeak: true,
+    dailyGoal: 20,
+    /** Ключ Claude API. Пустая строка = AI-раздел выключен. */
+    apiKey: '',
+    writingLevel: 'A1',
+    /** Синхронизация через приватный GitHub Gist. Пусто = выключена. */
+    githubToken: '',
+    gistId: '',
+    lastSyncAt: null,
+  },
+};
+
+let state = null;
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+export function loadState() {
+  if (state) return state;
+  try {
+    const raw = localStorage.getItem(KEY);
+    state = raw
+      ? { ...clone(DEFAULT_STATE), ...JSON.parse(raw) }
+      : clone(DEFAULT_STATE);
+    // settings мог появиться позже — доливаем недостающие ключи
+    state.settings = { ...DEFAULT_STATE.settings, ...(state.settings || {}) };
+    // Разделы могли появиться после того, как прогресс уже был сохранён
+    state.pronunciation = state.pronunciation || {};
+    state.listening = state.listening || { attempts: 0, perfect: 0 };
+    state.writing = state.writing || { checked: 0, errorsFound: 0 };
+  } catch {
+    state = clone(DEFAULT_STATE);
+  }
+  if (!state.createdAt) {
+    state.createdAt = new Date().toISOString();
+    saveState();
+  }
+  return state;
+}
+
+export function saveState() {
+  if (!state) return;
+  localStorage.setItem(KEY, JSON.stringify(state));
+}
+
+export function update(mutator) {
+  const s = loadState();
+  mutator(s);
+  saveState();
+  return s;
+}
+
+export function resetState() {
+  localStorage.removeItem(KEY);
+  state = null;
+  return loadState();
+}
+
+/**
+ * Бэкап прогресса — БЕЗ ключа API.
+ *
+ * Ключ намеренно вырезается: бэкап скачивается файлом, пересылается
+ * и лежит в загрузках, а секрет в таком файле рано или поздно утечёт.
+ * Прогресс переносится, ключ вводится заново на новом устройстве.
+ */
+export function exportState() {
+  const snapshot = clone(loadState());
+  delete snapshot.settings.apiKey;
+  delete snapshot.settings.githubToken;
+  return JSON.stringify(snapshot, null, 2);
+}
+
+export function importState(json) {
+  const parsed = JSON.parse(json);
+  const currentKey = loadState().settings.apiKey;
+  state = { ...clone(DEFAULT_STATE), ...parsed };
+  state.settings = { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) };
+  // Ключ из бэкапа не приходит — сохраняем тот, что уже введён здесь
+  state.settings.apiKey = parsed.settings?.apiKey || currentKey || '';
+  saveState();
+  return state;
+}
+
+/* ---------- Дата и стрик ---------- */
+
+/**
+ * Дата в виде YYYY-MM-DD по ЛОКАЛЬНОМУ времени.
+ *
+ * Наивный `toISOString().slice(0,10)` вернул бы дату по UTC: в поясе UTC+5
+ * весь вечер после 19:00 считался бы «вчера», и стрик с интервалами
+ * повторений уезжали бы на день. Поэтому собираем дату руками.
+ */
+export function toISODate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function today() {
+  return toISODate(new Date());
+}
+
+function daysBetween(a, b) {
+  const ms = new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00');
+  return Math.round(ms / 86400000);
+}
+
+/** Отмечает активность за сегодня и пересчитывает стрик. */
+export function touchStudyDay() {
+  return update((s) => {
+    const t = today();
+    if (s.lastStudyDate === t) return;
+    if (!s.lastStudyDate) {
+      s.streak = 1;
+    } else {
+      const gap = daysBetween(s.lastStudyDate, t);
+      s.streak = gap === 1 ? s.streak + 1 : 1;
+    }
+    s.lastStudyDate = t;
+  });
+}
+
+export function addXp(amount) {
+  return update((s) => {
+    s.xp += amount;
+    const t = today();
+    s.history[t] = (s.history[t] || 0) + 1;
+  });
+}
+
+/** Сколько повторений сделано сегодня. */
+export function todayCount() {
+  return loadState().history[today()] || 0;
+}
