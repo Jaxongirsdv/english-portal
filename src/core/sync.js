@@ -65,6 +65,15 @@ async function github(path, options = {}) {
   if (!response.ok) {
     const error = new Error(`github-${response.status}`);
     error.status = response.status;
+    // GitHub объясняет отказ точнее, чем можно угадать по коду ответа.
+    // Заголовки со списком прав браузеру недоступны, а тело — доступно,
+    // поэтому показываем его дословно вместо своего предположения.
+    try {
+      const body = await response.json();
+      error.detail = body?.message;
+    } catch {
+      /* тело может быть не JSON */
+    }
     throw error;
   }
   return response.json();
@@ -166,10 +175,23 @@ export async function connectExisting(gistId) {
 
 export function describeError(err) {
   if (err?.message === 'no-token') return 'Не задан токен GitHub. Добавь его в «Настройках».';
-  if (err?.status === 401) return 'Токен GitHub не принят. Проверь его и права доступа.';
-  if (err?.status === 403) return 'У токена нет права на работу с gist (нужна область «gist»).';
-  if (err?.status === 404) return 'Хранилище не найдено. Проверь идентификатор gist.';
-  if (err?.status === 422) return 'GitHub отклонил запрос: проверь содержимое хранилища.';
   if (!navigator.onLine) return 'Нет связи. Синхронизация возможна только онлайн.';
-  return `Не удалось синхронизировать: ${err?.message || 'неизвестная ошибка'}`;
+
+  // Своими словами объясняем, что делать, а причину цитируем от GitHub:
+  // по одному коду ответа её надёжно не определить
+  const detail = err?.detail ? ` GitHub: «${err.detail}»` : '';
+
+  switch (err?.status) {
+    case 401:
+      return `Токен не принят — возможно, он истёк или скопирован не полностью.${detail}`;
+    case 403:
+      return `GitHub отклонил запрос. Чаще всего у токена нет области «gist», но проверь текст ниже.${detail}`;
+    case 404:
+      return `Хранилище недоступно: либо неверный идентификатор gist, либо у токена нет области «gist» — приватные gist без неё не видны.${detail}`;
+    case 422:
+      return `GitHub не принял содержимое запроса.${detail}`;
+    default:
+      if (err?.status >= 500) return `Сервис GitHub временно недоступен. Попробуй позже.${detail}`;
+      return `Не удалось синхронизировать.${detail || ` ${err?.message || ''}`}`;
+  }
 }
