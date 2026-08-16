@@ -102,26 +102,41 @@ export function resetState() {
 }
 
 /**
- * Бэкап прогресса — БЕЗ ключа API.
+ * Секреты, которые принадлежат устройству, а не прогрессу.
  *
- * Ключ намеренно вырезается: бэкап скачивается файлом, пересылается
- * и лежит в загрузках, а секрет в таком файле рано или поздно утечёт.
- * Прогресс переносится, ключ вводится заново на новом устройстве.
+ * Единый список, потому что забыть одну строчку здесь стоит дорого:
+ * пропущенный в экспорте секрет утечёт в скачанный файл, пропущенный
+ * в импорте — молча сотрётся при восстановлении бэкапа.
+ */
+const DEVICE_SECRETS = ['apiKey', 'githubToken'];
+
+/**
+ * Бэкап прогресса — БЕЗ секретов.
+ *
+ * Бэкап скачивается файлом, пересылается и лежит в загрузках, а секрет
+ * в таком файле рано или поздно утечёт. Прогресс переносится, ключи
+ * вводятся заново на новом устройстве.
  */
 export function exportState() {
   const snapshot = clone(loadState());
-  delete snapshot.settings.apiKey;
-  delete snapshot.settings.githubToken;
+  for (const key of DEVICE_SECRETS) delete snapshot.settings[key];
   return JSON.stringify(snapshot, null, 2);
 }
 
 export function importState(json) {
   const parsed = JSON.parse(json);
-  const currentKey = loadState().settings.apiKey;
+  const current = loadState().settings;
+
   state = { ...clone(DEFAULT_STATE), ...parsed };
   state.settings = { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) };
-  // Ключ из бэкапа не приходит — сохраняем тот, что уже введён здесь
-  state.settings.apiKey = parsed.settings?.apiKey || currentKey || '';
+
+  // Секретов в бэкапе нет — оставляем те, что уже введены на этом
+  // устройстве, иначе восстановление прогресса молча ломало бы
+  // проверку письма и синхронизацию
+  for (const key of DEVICE_SECRETS) {
+    state.settings[key] = parsed.settings?.[key] || current[key] || '';
+  }
+
   saveState();
   return state;
 }
