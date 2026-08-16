@@ -9,6 +9,7 @@ import { initAutoSync, syncStatus, isEnabled as autoSyncEnabled } from './core/a
 import { renderDashboard } from './views/dashboard.js';
 import { renderRoadmap } from './views/roadmap.js';
 import { renderVocab, setFilter, setQuery } from './views/vocab.js';
+import { esc } from './core/ui.js';
 import {
   renderSettings,
   handleSettingChange,
@@ -67,7 +68,11 @@ function navigate(target) {
 function syncBadge() {
   const { state, at, error } = syncStatus();
   if (state === 'syncing') return '<span class="faint">↻ синхронизация…</span>';
-  if (state === 'error') return `<span style="color:var(--amber)" title="${error}">⚠ не синхронизировано</span>`;
+  // Текст ошибки приходит из сети и обязан экранироваться: без этого
+  // содержимое чужого ответа попадало бы в атрибут как разметка
+  if (state === 'error') {
+    return `<span style="color:var(--amber)" title="${esc(error || '')}">⚠ не синхронизировано</span>`;
+  }
   if (state === 'ok' && at) {
     const mins = Math.round((Date.now() - at) / 60000);
     return `<span class="faint">✓ ${mins < 1 ? 'только что' : `${mins} мин назад`}</span>`;
