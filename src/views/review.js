@@ -12,9 +12,16 @@ import {
   GRADE,
   DIRECTION,
 } from '../core/srs.js';
-import { loadState, addXp, touchStudyDay } from '../core/storage.js';
+import { loadState, update, addXp, touchStudyDay } from '../core/storage.js';
 import { esc, speakBtn, shuffle, plural, normalize } from '../core/ui.js';
 import { speak } from '../core/speech.js';
+import { scoreAttempt, VERDICT } from '../core/compare.js';
+import {
+  isSupported as speechSupported,
+  listen,
+  cancel,
+  describeError,
+} from '../core/recognition.js';
 
 /**
  * Тренажёр интервальных повторений.
@@ -30,10 +37,15 @@ import { speak } from '../core/speech.js';
  * Стороны проверяются по-разному, и это принципиально:
  *
  *   узнавание      — самооценка. Понял смысл или нет, видно самому.
- *   воспроизведение — ТОЛЬКО письменный ввод. Иначе достаточно нажать
- *                    «показать ответ», увидеть слово и решить «ну да,
- *                    я знал» — интервал вырастет, а слово не вспомнится
- *                    ни разу. Это не тренировка, а обход тренировки.
+ *   воспроизведение — сначала попытка, и только потом ответ. Иначе
+ *                    достаточно нажать «показать ответ», увидеть слово
+ *                    и решить «ну да, я знал» — интервал вырастет,
+ *                    а слово не вспомнится ни разу. Это не тренировка,
+ *                    а обход тренировки.
+ *
+ * Попытку можно сделать голосом или письменно — оба способа объективны,
+ * оба требуют извлечь слово из памяти. Письменный доступен всегда:
+ * распознаванию нужны интернет, микрофон и подходящий браузер.
  */
 let q = null;
 
@@ -54,8 +66,11 @@ export function startReview() {
   q = {
     queue: [...shuffle(due), ...fresh],
     revealed: false,
-    typed: '', // ответ, набранный для карточки воспроизведения
-    correct: null, // результат письменной проверки; null — проверки не было
+    typed: '', // набранный ответ
+    heard: '', // что услышал распознаватель либо что было набрано
+    verdict: null, // exact | close | wrong; null — проверки не было
+    status: 'idle', // idle | listening
+    error: null, // сообщение распознавателя
     done: 0,
     total: due.length + fresh.length,
     lockedOut: unlocked.length === 0,
@@ -64,6 +79,7 @@ export function startReview() {
 
 
 export function exitReview() {
+  cancel(); // микрофон не должен остаться включённым после ухода с экрана
   q = null;
 }
 
@@ -107,10 +123,12 @@ export function renderReview() {
   const isProd = direction === DIRECTION.PROD;
   const progress = q.total ? ((q.total - q.queue.length) / q.total) * 100 : 0;
 
+  const speaking = isProd && answerMode() === 'speak';
+
   // Лицевая сторона: узнавание показывает слово, воспроизведение — перевод.
   const front = isProd
     ? `<div class="flash-word" style="color:var(--accent)">${esc(w.ru)}</div>
-       <div class="flash-ipa">напиши это слово по-английски</div>`
+       <div class="flash-ipa">${speaking ? 'скажи' : 'напиши'} это слово по-английски</div>`
     : `<div class="flash-word">${esc(w.en)} ${speakBtn(w.en)}</div>
        <div class="flash-ipa">${esc(w.ipa)}</div>`;
 
@@ -133,7 +151,7 @@ export function renderReview() {
 
     <div class="row mb-4" style="justify-content:center">
       <span class="word-status ${isProd ? 'learning' : 'new'}">
-        ${isProd ? '✍️ напиши слово' : '👁 узнай слово'}
+        ${isProd ? (speaking ? '🎤 скажи слово' : '✍️ напиши слово') : '👁 узнай слово'}
       </span>
     </div>
 
@@ -143,7 +161,7 @@ export function renderReview() {
         q.revealed
           ? back
           : `<div class="dim" style="padding:14px 0">${
-              isProd ? 'Проверить себя можно только письменно' : 'Вспомни перевод, затем открой карточку'
+              isProd ? 'Ответ откроется после попытки' : 'Вспомни перевод, затем открой карточку'
             }</div>`
       }
     </div>
@@ -163,40 +181,113 @@ function renderRecControls() {
 }
 
 /**
- * Воспроизведение: сначала ввод, и только потом ответ.
+ * Способ ответа на обратной стороне.
+ *
+ * Если распознавание недоступно, режим всегда письменный — иначе выбор
+ * «говорить» превратил бы экран в тупик на первом же телефоне без
+ * подходящего браузера.
+ */
+function answerMode() {
+  const mode = loadState().settings.prodAnswer;
+  return mode === 'speak' && speechSupported() ? 'speak' : 'write';
+}
+
+export function setAnswerMode(mode) {
+  if (!q || q.revealed || q.status === 'listening') return false;
+  update((s) => {
+    s.settings.prodAnswer = mode === 'speak' ? 'speak' : 'write';
+  });
+  q.error = null;
+  return true;
+}
+
+const ACTIVE_CHIP = 'border-color:var(--accent);color:var(--accent)';
+
+/**
+ * Воспроизведение: сначала попытка, и только потом ответ.
  *
  * autocomplete/autocorrect/spellcheck выключены намеренно — на телефоне
  * подсказка клавиатуры дописала бы слово за тебя, и проверка снова
  * превратилась бы в самообман, только чужими руками.
  */
 function renderProdControls(w) {
-  if (!q.revealed) {
-    return `
-      <input class="text-input" data-prod-input placeholder="Напиши по-английски…"
-             value="${esc(q.typed)}" autocomplete="off" autocapitalize="off"
-             autocorrect="off" spellcheck="false" />
-      <div class="row mt-4">
-        <button class="btn btn-primary" data-prod-check>Проверить</button>
-        <button class="btn btn-ghost" data-prod-giveup>Не помню</button>
-      </div>`;
-  }
+  if (q.revealed) return renderVerdict(w);
 
-  const typed = q.typed.trim();
-  const verdict = q.correct
-    ? '<strong>Верно.</strong> Слово вспомнилось само — это и есть воспроизведение.'
-    : typed
-      ? `Ты написал <strong>«${esc(typed)}»</strong>, а нужно <strong>${esc(w.en)}</strong>.`
-      : `Слово не вспомнилось. Правильный ответ — <strong>${esc(w.en)}</strong>.`;
+  const mode = answerMode();
+  const listening = q.status === 'listening';
+
+  // Переключатель показываем только там, где есть из чего выбирать
+  const switcher = speechSupported()
+    ? `<div class="row mb-4" style="gap:6px;justify-content:center">
+         <button class="chip" style="${mode === 'write' ? ACTIVE_CHIP : ''}" data-prod-mode="write">⌨️ Написать</button>
+         <button class="chip" style="${mode === 'speak' ? ACTIVE_CHIP : ''}" data-prod-mode="speak">🎤 Сказать</button>
+       </div>`
+    : '';
+
+  const attempt =
+    mode === 'speak'
+      ? `${
+          listening
+            ? '<button class="btn btn-lg" style="width:100%" disabled>🎤 Слушаю… говори</button>'
+            : '<button class="btn btn-primary btn-lg" style="width:100%" data-prod-speak>🎤 Записать ответ</button>'
+        }
+        ${q.error ? `<div class="feedback no mt-4"><strong>${esc(q.error)}</strong></div>` : ''}`
+      : `<input class="text-input" data-prod-input placeholder="Напиши по-английски…"
+                value="${esc(q.typed)}" autocomplete="off" autocapitalize="off"
+                autocorrect="off" spellcheck="false" />
+         <div class="row mt-4">
+           <button class="btn btn-primary" data-prod-check>Проверить</button>
+         </div>`;
 
   return `
-    <div class="feedback ${q.correct ? 'ok' : 'no'}">${verdict}</div>
+    ${switcher}
+    ${attempt}
+    <div class="row mt-4">
+      <button class="btn btn-ghost" data-prod-giveup ${listening ? 'disabled' : ''}>Не помню</button>
+    </div>`;
+}
+
+/** Разбор попытки: что именно вышло и какие оценки после этого возможны. */
+function renderVerdict(w) {
+  const heard = q.heard.trim();
+  const spoken = answerMode() === 'speak';
+
+  let tone = 'no';
+  let text;
+  if (q.verdict === VERDICT.EXACT) {
+    tone = 'ok';
+    text = '<strong>Верно.</strong> Слово вспомнилось само — это и есть воспроизведение.';
+  } else if (q.verdict === VERDICT.CLOSE) {
+    // Промахнулась рука или язык, но не память: слово было извлечено
+    tone = 'close';
+    text = `<strong>Почти.</strong> ${
+      spoken ? 'Услышано' : 'Ты написал'
+    } «${esc(heard)}», а нужно <strong>${esc(w.en)}</strong>.<br />
+      <span class="faint">Слово ты вспомнил, но неточно — засчитываем как «трудно».</span>`;
+  } else if (heard) {
+    text = `${spoken ? 'Услышано' : 'Ты написал'} «${esc(heard)}», а нужно <strong>${esc(w.en)}</strong>.`;
+  } else {
+    text = `Слово не вспомнилось. Правильный ответ — <strong>${esc(w.en)}</strong>.`;
+  }
+
+  const grades = allowedGrades(q.verdict);
+  const hint = {
+    [GRADE.AGAIN]: 'слово вернётся сегодня',
+    [GRADE.HARD]: 'повторим раньше обычного',
+  };
+
+  return `
+    <div class="feedback ${tone === 'close' ? 'ok' : tone}"
+         ${tone === 'close' ? 'style="border-color:var(--amber);background:var(--amber-soft)"' : ''}>
+      ${text}
+    </div>
     <div class="mt-4">
       ${
-        q.correct
-          ? gradeRow(allowedGrades(true))
-          : `<button class="btn btn-lg" style="width:100%" data-grade="${GRADE.AGAIN}">
-               Дальше<small style="display:block;opacity:.6;font-weight:400">слово вернётся сегодня</small>
+        grades.length === 1
+          ? `<button class="btn btn-lg" style="width:100%" data-grade="${grades[0]}">
+               Дальше<small style="display:block;opacity:.6;font-weight:400">${hint[grades[0]]}</small>
              </button>`
+          : gradeRow(grades)
       }
     </div>`;
 }
@@ -224,9 +315,12 @@ function currentDirection() {
   return q && q.queue.length ? parseCardId(q.queue[0]).direction : null;
 }
 
-function reveal(correct) {
+function reveal(verdict, heard = '') {
   q.revealed = true;
-  q.correct = correct;
+  q.verdict = verdict;
+  q.heard = heard;
+  q.status = 'idle';
+  q.error = null;
   const w = getWord(parseCardId(q.queue[0]).wordId);
   if (w && loadState().settings.autoSpeak) speak(w.en);
   return true;
@@ -247,33 +341,58 @@ export function handleReveal() {
 }
 
 export function handleCheck() {
-  if (!q || !q.queue.length || q.revealed) return false;
+  if (!q || !q.queue.length || q.revealed || q.status === 'listening') return false;
   if (currentDirection() !== DIRECTION.PROD) return false;
 
   // Пустое поле — не ответ: засчитать его ошибкой значило бы наказать
   // за случайный клик, а верным — открыть дыру шире прежней.
-  const answer = normalize(q.typed);
-  if (!answer) return false;
+  if (!normalize(q.typed)) return false;
 
   const w = getWord(parseCardId(q.queue[0]).wordId);
-  return reveal(answer === normalize(w.en));
+  // Тот же разбор, что и для речи: опечатка — это «почти», а не провал,
+  // но порог зависит от длины слова, иначе tree сошло бы за three
+  const { verdict } = scoreAttempt(w.en, [q.typed]);
+  return reveal(verdict, q.typed.trim());
+}
+
+export async function handleSpeak(rerender) {
+  if (!q || !q.queue.length || q.revealed || q.status === 'listening') return;
+  if (currentDirection() !== DIRECTION.PROD) return;
+
+  const w = getWord(parseCardId(q.queue[0]).wordId);
+  q.status = 'listening';
+  q.error = null;
+  rerender();
+
+  try {
+    const alternatives = await listen({ lang: 'en-US' });
+    // Пока шла запись, карточку могли закрыть другим способом
+    if (!q || q.revealed || !q.queue.length) return;
+    const { verdict, heard } = scoreAttempt(w.en, alternatives);
+    reveal(verdict, heard);
+  } catch (err) {
+    if (!q) return;
+    q.status = 'idle';
+    q.error = describeError(err.message);
+  }
+  rerender();
 }
 
 /** Честное «не помню» до показа ответа — признание, а не самооценка. */
 export function handleGiveUp() {
-  if (!q || !q.queue.length || q.revealed) return false;
+  if (!q || !q.queue.length || q.revealed || q.status === 'listening') return false;
   if (currentDirection() !== DIRECTION.PROD) return false;
-  return reveal(false);
+  return reveal(VERDICT.WRONG);
 }
 
 export function handleGrade(grade) {
   if (!q || !q.revealed) return false;
   const g = Number(grade);
 
-  // После письменной проверки набор оценок задан её результатом.
-  // Проверяем и здесь, а не только при отрисовке: клик по устаревшей
-  // разметке не должен отодвигать невоспроизведённое слово.
-  if (q.correct !== null && !allowedGrades(q.correct).includes(g)) return false;
+  // После проверки набор оценок задан её результатом. Проверяем и здесь,
+  // а не только при отрисовке: клик по устаревшей разметке не должен
+  // отодвигать невоспроизведённое слово.
+  if (q.verdict !== null && !allowedGrades(q.verdict).includes(g)) return false;
 
   const id = q.queue.shift();
   review(id, g);
@@ -282,8 +401,11 @@ export function handleGrade(grade) {
   if (g < 3) q.queue.push(id);
 
   q.revealed = false;
-  q.correct = null;
+  q.verdict = null;
+  q.heard = '';
   q.typed = '';
+  q.error = null;
+  q.status = 'idle';
   q.done += 1;
   addXp(g >= 3 ? 5 : 1);
   touchStudyDay();

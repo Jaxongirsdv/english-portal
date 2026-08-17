@@ -210,6 +210,15 @@ app.addEventListener('click', (e) => {
     if (Review.handleGiveUp()) render();
     return;
   }
+  if (target('[data-prod-speak]')) {
+    Review.handleSpeak(render); // асинхронно: перерисовывает сам
+    return;
+  }
+  const prodMode = target('[data-prod-mode]');
+  if (prodMode) {
+    if (Review.setAnswerMode(prodMode.dataset.prodMode)) render();
+    return;
+  }
   const grade = target('[data-grade]');
   if (grade) {
     if (Review.handleGrade(grade.dataset.grade)) render();

@@ -8,7 +8,8 @@
  *
  * Поэтому тесты проверяют не «работают ли кнопки», а невозможность
  * зачесть невоспроизведённое слово: ни через показ ответа, ни через
- * пустой ввод, ни кликом по устаревшей разметке.
+ * пустой ввод, ни кликом по устаревшей разметке. И одновременно —
+ * что честная попытка с опечаткой не считается провалом.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,6 +29,7 @@ const Review = await import('../src/views/review.js');
 
 const LESSON = allLessons().find((l) => l.vocab.length >= 5);
 const FUTURE = '2099-01-01';
+const NONSENSE = 'zzzz qqqq';
 
 function card(over = {}) {
   return { ease: 2.5, interval: 6, reps: 1, lapses: 0, due: FUTURE, ...over };
@@ -47,8 +49,10 @@ function prodSession() {
   });
 
   const unlocked = unlockedVocabIds(loadState().lessons);
-  // Длинное слово: короткое могло бы случайно совпасть с версткой
-  const targetId = unlocked.find((id) => getWord(id).en.length >= 4);
+  // Слово от восьми букв: на нём пропуск одной буквы гарантированно
+  // остаётся опечаткой, а не превращается в другое слово
+  const targetId = unlocked.find((id) => getWord(id).en.length >= 8);
+  assert.ok(targetId, 'в уроке нужно длинное слово, иначе опечатку не проверить');
 
   update((s) => {
     for (const wid of unlocked) {
@@ -69,7 +73,26 @@ function recSession() {
   Review.startReview();
 }
 
-test.afterEach(() => Review.exitReview());
+/** Подставной распознаватель: движок ищется через window при каждом вызове. */
+function withEngine(behaviour) {
+  class Fake {
+    start() {
+      setTimeout(() => behaviour(this), 0);
+    }
+    stop() {}
+    abort() {}
+  }
+  globalThis.window = { SpeechRecognition: Fake };
+}
+
+const hears = (text) => (r) =>
+  r.onresult({ results: [[{ transcript: text, confidence: 0.9 }]] });
+const fails = (code) => (r) => r.onerror({ error: code });
+
+test.afterEach(() => {
+  Review.exitReview();
+  delete globalThis.window;
+});
 
 /* ---------- Ответ нельзя увидеть до попытки ---------- */
 
@@ -77,30 +100,20 @@ test('лицевая сторона воспроизведения не соде
   const { word } = prodSession();
   const html = Review.renderReview();
 
-  assert.ok(!html.includes(word.en), `слово «${word.en}» не должно быть видно до проверки`);
+  assert.ok(!html.includes(word.en), `слово «${word.en}» не должно быть видно до попытки`);
   assert.ok(html.includes('data-prod-input'), 'вместо этого — поле для ввода');
 });
 
 test('«показать ответ» на воспроизведении не срабатывает', () => {
   const { word } = prodSession();
 
-  assert.equal(Review.handleReveal(), false, 'обойти ввод нельзя');
+  assert.equal(Review.handleReveal(), false, 'обойти попытку нельзя');
   assert.ok(!Review.renderReview().includes(word.en), 'ответ так и не показан');
 });
 
 test('без проверки оценку поставить нельзя', () => {
   prodSession();
   assert.equal(Review.handleGrade(GRADE.GOOD), false);
-});
-
-/* ---------- Проверка написанного ---------- */
-
-test('регистр и знаки препинания ошибкой не считаются', () => {
-  const { word } = prodSession();
-  Review.syncTyped(`  ${word.en.toUpperCase()}!  `);
-
-  assert.equal(Review.handleCheck(), true);
-  assert.equal(Review.handleGrade(GRADE.GOOD), true, 'верный ответ можно оценить как «помню»');
 });
 
 test('пустое поле — не ответ', () => {
@@ -113,14 +126,39 @@ test('пустое поле — не ответ', () => {
   assert.ok(!Review.renderReview().includes(word.en), 'ответ не открылся');
 });
 
-test('после ошибки «помню» и «трудно» недоступны', () => {
+/* ---------- Что считается верным ---------- */
+
+test('регистр и знаки препинания ошибкой не считаются', () => {
+  const { word } = prodSession();
+  Review.syncTyped(`  ${word.en.toUpperCase()}!  `);
+
+  assert.equal(Review.handleCheck(), true);
+  assert.equal(Review.handleGrade(GRADE.GOOD), true, 'точный ответ можно оценить как «помню»');
+});
+
+test('опечатка — это «почти», а не провал', () => {
   const { id, word } = prodSession();
-  Review.syncTyped(word.en + 'xx');
+  Review.syncTyped(word.en.slice(0, -1)); // потеряна последняя буква
   Review.handleCheck();
 
-  assert.equal(Review.handleGrade(GRADE.GOOD), false, '«помню» после ошибки — самообман');
-  assert.equal(Review.handleGrade(GRADE.EASY), false);
+  const html = Review.renderReview();
+  assert.ok(html.includes('Почти'), 'разбор должен назвать это опечаткой');
+  assert.equal(Review.handleGrade(GRADE.GOOD), false, 'но «помню» за опечатку не ставится');
+  assert.equal(Review.handleGrade(GRADE.HARD), true, 'засчитывается как «трудно»');
+
+  const prod = getCard(cardId(id, DIRECTION.PROD));
+  assert.equal(prod.lapses, 0, 'слово вспомнилось — провалом это не считается');
+  assert.notEqual(prod.due, today(), 'и повтор всё же отодвигается');
+});
+
+test('другое слово опечаткой не считается', () => {
+  const { id } = prodSession();
+  Review.syncTyped(NONSENSE);
+  Review.handleCheck();
+
   assert.equal(Review.handleGrade(GRADE.HARD), false, '«трудно» отодвинуло бы повторение');
+  assert.equal(Review.handleGrade(GRADE.GOOD), false);
+  assert.equal(Review.handleGrade(GRADE.EASY), false);
   assert.equal(Review.handleGrade(GRADE.AGAIN), true);
 
   const prod = getCard(cardId(id, DIRECTION.PROD));
@@ -129,23 +167,92 @@ test('после ошибки «помню» и «трудно» недосту�
 
 test('неверный ответ возвращает карточку в конец очереди', () => {
   const { word } = prodSession();
-  Review.syncTyped('definitely not it');
+  Review.syncTyped(NONSENSE);
   Review.handleCheck();
   Review.handleGrade(GRADE.AGAIN);
 
   const html = Review.renderReview();
   assert.ok(html.includes('data-prod-input'), 'та же карточка спрашивается снова');
   assert.ok(!html.includes(word.en), 'и снова без подсказки');
-  assert.ok(!html.includes('definitely not it'), 'прошлый ответ стёрт');
+  assert.ok(!html.includes(NONSENSE), 'прошлый ответ стёрт');
 });
 
 test('«не помню» открывает ответ, но не даёт зачесть слово', () => {
   const { word } = prodSession();
 
   assert.equal(Review.handleGiveUp(), true);
-  const html = Review.renderReview();
-  assert.ok(html.includes(word.en), 'ответ показан — иначе не выучить');
+  assert.ok(Review.renderReview().includes(word.en), 'ответ показан — иначе не выучить');
   assert.equal(Review.handleGrade(GRADE.GOOD), false, 'но «помню» после сдачи невозможно');
+});
+
+/* ---------- Голосом ---------- */
+
+test('без распознавания режим остаётся письменным', () => {
+  prodSession();
+  Review.setAnswerMode('speak'); // движка нет — выбор не должен запирать экран
+
+  const html = Review.renderReview();
+  assert.ok(html.includes('data-prod-input'), 'поле ввода на месте');
+  assert.ok(!html.includes('data-prod-speak'), 'кнопки записи быть не должно');
+  assert.ok(!html.includes('data-prod-mode'), 'и переключателя тоже: выбирать не из чего');
+});
+
+test('сказанное верно засчитывается так же, как написанное', async () => {
+  const { word } = prodSession();
+  withEngine(hears(word.en));
+  Review.setAnswerMode('speak');
+
+  const html = Review.renderReview();
+  assert.ok(html.includes('data-prod-speak'), 'появилась кнопка записи');
+  assert.ok(!html.includes(word.en), 'ответ по-прежнему скрыт');
+
+  await Review.handleSpeak(() => {});
+  assert.ok(Review.renderReview().includes(word.en), 'после попытки ответ открыт');
+  assert.equal(Review.handleGrade(GRADE.GOOD), true);
+});
+
+test('услышанное чужое слово не зачитывается', async () => {
+  const { id } = prodSession();
+  withEngine(hears(NONSENSE));
+  Review.setAnswerMode('speak');
+
+  await Review.handleSpeak(() => {});
+  assert.equal(Review.handleGrade(GRADE.GOOD), false);
+  assert.equal(Review.handleGrade(GRADE.AGAIN), true);
+  assert.equal(getCard(cardId(id, DIRECTION.PROD)).due, today());
+});
+
+test('отказ микрофона объясняется и ничего не засчитывает', async () => {
+  prodSession();
+  withEngine(fails('not-allowed'));
+  Review.setAnswerMode('speak');
+
+  await Review.handleSpeak(() => {});
+  const html = Review.renderReview();
+
+  assert.ok(html.includes('Нет доступа к микрофону'), 'причина названа прямо');
+  assert.ok(html.includes('data-prod-speak'), 'можно попробовать снова');
+  assert.equal(Review.handleGrade(GRADE.AGAIN), false, 'попытки не было — оценивать нечего');
+});
+
+test('во время записи карточку нельзя сдать или переключить', async () => {
+  const { word } = prodSession();
+  let resolveEngine;
+  withEngine((r) => {
+    resolveEngine = () => r.onresult({ results: [[{ transcript: word.en, confidence: 0.9 }]] });
+  });
+  Review.setAnswerMode('speak');
+
+  const pending = Review.handleSpeak(() => {});
+  await new Promise((r) => setTimeout(r, 0)); // движок «запустился»
+
+  assert.equal(Review.handleGiveUp(), false, 'иначе ответ открылся бы дважды');
+  assert.equal(Review.setAnswerMode('write'), false);
+  assert.equal(Review.handleCheck(), false);
+
+  resolveEngine();
+  await pending;
+  assert.equal(Review.handleGrade(GRADE.GOOD), true, 'после записи всё работает');
 });
 
 /* ---------- Узнавание работает по-прежнему ---------- */
