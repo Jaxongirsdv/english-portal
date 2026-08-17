@@ -184,6 +184,12 @@ test('отказ сервиса несёт код и объяснение', asyn
   assert.ok(describeError(err).includes('API key not valid'), 'причину показываем как есть');
 });
 
+test('оборванный запрос объясняется по-человечески', () => {
+  const text = describeError(new TypeError('Failed to fetch'));
+  assert.ok(!text.includes('Failed to fetch'), 'системный текст ничего не подсказывает');
+  assert.ok(/связ|блокиров|VPN/i.test(text));
+});
+
 test('раз сервис ответил кодом, на сеть не жалуемся', () => {
   const text = describeError({ status: 429 });
   assert.ok(!text.includes('Нет связи'), 'ответ с кодом не означает отсутствие связи');
