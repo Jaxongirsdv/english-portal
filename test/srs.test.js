@@ -28,6 +28,7 @@ const {
   GRADE,
   DIRECTION,
   PROD_UNLOCK_AFTER,
+  allowedGrades,
 } = await import('../src/core/srs.js');
 const { resetState, today, toISODate } = await import('../src/core/storage.js');
 
@@ -108,6 +109,49 @@ test('очереди: новое слово не попадает в повто�
   resetState();
   review('future', GRADE.GOOD);
   assert.deepEqual(dueCardIds(['future']), []);
+});
+
+/* ---------- Оценки после письменной проверки ---------- */
+
+test('после ошибки выбора нет — это был бы самообман', () => {
+  const allowed = allowedGrades(false);
+
+  assert.deepEqual(allowed, [GRADE.AGAIN], 'написал неверно — значит не вспомнил, и оценивать нечего');
+});
+
+test('«трудно» после ошибки недоступно, хотя соблазнительно', () => {
+  // В SM-2 «трудно» считается успехом и отодвигает повторение:
+  // оставить её здесь значило бы вернуть ту же лазейку
+  assert.ok(!allowedGrades(false).includes(GRADE.HARD));
+});
+
+test('после верного ответа нельзя обнулить карточку', () => {
+  const allowed = allowedGrades(true);
+
+  assert.ok(allowed.includes(GRADE.GOOD));
+  assert.ok(allowed.includes(GRADE.EASY));
+  assert.ok(!allowed.includes(GRADE.AGAIN), 'слово написано верно — сбрасывать нечего');
+});
+
+test('при верном ответе выбирается только длина интервала', () => {
+  // Факт воспроизведения уже подтверждён вводом — остаётся сказать,
+  // насколько легко далось
+  assert.deepEqual(allowedGrades(true), [GRADE.HARD, GRADE.GOOD, GRADE.EASY]);
+});
+
+test('любая доступная после ошибки оценка возвращает слово в работу', () => {
+  for (const grade of allowedGrades(false)) {
+    resetState();
+    review('w', GRADE.GOOD);
+    review('w', GRADE.GOOD); // интервал вырос до 6 дней
+    const before = getCard('w').interval;
+
+    const after = review('w', grade);
+    assert.ok(
+      after.interval < before,
+      `оценка ${grade} после ошибки не должна отодвигать повторение`,
+    );
+  }
 });
 
 /* ---------- Две стороны карточки ---------- */

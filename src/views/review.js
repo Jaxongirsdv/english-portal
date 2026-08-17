@@ -8,10 +8,12 @@ import {
   cardId,
   review,
   stats,
+  allowedGrades,
+  GRADE,
   DIRECTION,
 } from '../core/srs.js';
 import { loadState, addXp, touchStudyDay } from '../core/storage.js';
-import { esc, speakBtn, shuffle, plural } from '../core/ui.js';
+import { esc, speakBtn, shuffle, plural, normalize } from '../core/ui.js';
 import { speak } from '../core/speech.js';
 
 /**
@@ -24,6 +26,14 @@ import { speak } from '../core/speech.js';
  *
  * Порядок не случаен: долги важнее нового материала, а обратная сторона
  * важнее нового слова — иначе словарь растёт вширь, а говорить не выходит.
+ *
+ * Стороны проверяются по-разному, и это принципиально:
+ *
+ *   узнавание      — самооценка. Понял смысл или нет, видно самому.
+ *   воспроизведение — ТОЛЬКО письменный ввод. Иначе достаточно нажать
+ *                    «показать ответ», увидеть слово и решить «ну да,
+ *                    я знал» — интервал вырастет, а слово не вспомнится
+ *                    ни разу. Это не тренировка, а обход тренировки.
  */
 let q = null;
 
@@ -44,6 +54,8 @@ export function startReview() {
   q = {
     queue: [...shuffle(due), ...fresh],
     revealed: false,
+    typed: '', // ответ, набранный для карточки воспроизведения
+    correct: null, // результат письменной проверки; null — проверки не было
     done: 0,
     total: due.length + fresh.length,
     lockedOut: unlocked.length === 0,
@@ -98,7 +110,7 @@ export function renderReview() {
   // Лицевая сторона: узнавание показывает слово, воспроизведение — перевод.
   const front = isProd
     ? `<div class="flash-word" style="color:var(--accent)">${esc(w.ru)}</div>
-       <div class="flash-ipa">скажи по-английски</div>`
+       <div class="flash-ipa">напиши это слово по-английски</div>`
     : `<div class="flash-word">${esc(w.en)} ${speakBtn(w.en)}</div>
        <div class="flash-ipa">${esc(w.ipa)}</div>`;
 
@@ -121,7 +133,7 @@ export function renderReview() {
 
     <div class="row mb-4" style="justify-content:center">
       <span class="word-status ${isProd ? 'learning' : 'new'}">
-        ${isProd ? '✍️ вспомни слово' : '👁 узнай слово'}
+        ${isProd ? '✍️ напиши слово' : '👁 узнай слово'}
       </span>
     </div>
 
@@ -131,43 +143,147 @@ export function renderReview() {
         q.revealed
           ? back
           : `<div class="dim" style="padding:14px 0">${
-              isProd ? 'Вспомни английское слово, затем проверь себя' : 'Вспомни перевод, затем открой карточку'
+              isProd ? 'Проверить себя можно только письменно' : 'Вспомни перевод, затем открой карточку'
             }</div>`
       }
     </div>
 
-    ${
-      q.revealed
-        ? `<div class="grade-row">
-            <button class="grade-btn again" data-grade="0">Не помню<small>снова сегодня</small></button>
-            <button class="grade-btn hard" data-grade="3">Трудно<small>скоро</small></button>
-            <button class="grade-btn good" data-grade="4">Помню<small>обычный интервал</small></button>
-            <button class="grade-btn easy" data-grade="5">Легко<small>надолго</small></button>
-          </div>`
-        : `<button class="btn btn-primary btn-lg" style="width:100%" data-reveal>Показать ответ</button>`
-    }
+    ${isProd ? renderProdControls(w) : renderRecControls()}
   `;
 }
 
-export function handleReveal() {
-  if (!q || !q.queue.length) return false;
+/**
+ * Узнавание: ответ открывается кнопкой, оценку ставит человек.
+ * Здесь самооценка честна — понял смысл или нет, видно сразу.
+ */
+function renderRecControls() {
+  return q.revealed
+    ? gradeRow([GRADE.AGAIN, GRADE.HARD, GRADE.GOOD, GRADE.EASY])
+    : '<button class="btn btn-primary btn-lg" style="width:100%" data-reveal>Показать ответ</button>';
+}
+
+/**
+ * Воспроизведение: сначала ввод, и только потом ответ.
+ *
+ * autocomplete/autocorrect/spellcheck выключены намеренно — на телефоне
+ * подсказка клавиатуры дописала бы слово за тебя, и проверка снова
+ * превратилась бы в самообман, только чужими руками.
+ */
+function renderProdControls(w) {
+  if (!q.revealed) {
+    return `
+      <input class="text-input" data-prod-input placeholder="Напиши по-английски…"
+             value="${esc(q.typed)}" autocomplete="off" autocapitalize="off"
+             autocorrect="off" spellcheck="false" />
+      <div class="row mt-4">
+        <button class="btn btn-primary" data-prod-check>Проверить</button>
+        <button class="btn btn-ghost" data-prod-giveup>Не помню</button>
+      </div>`;
+  }
+
+  const typed = q.typed.trim();
+  const verdict = q.correct
+    ? '<strong>Верно.</strong> Слово вспомнилось само — это и есть воспроизведение.'
+    : typed
+      ? `Ты написал <strong>«${esc(typed)}»</strong>, а нужно <strong>${esc(w.en)}</strong>.`
+      : `Слово не вспомнилось. Правильный ответ — <strong>${esc(w.en)}</strong>.`;
+
+  return `
+    <div class="feedback ${q.correct ? 'ok' : 'no'}">${verdict}</div>
+    <div class="mt-4">
+      ${
+        q.correct
+          ? gradeRow(allowedGrades(true))
+          : `<button class="btn btn-lg" style="width:100%" data-grade="${GRADE.AGAIN}">
+               Дальше<small style="display:block;opacity:.6;font-weight:400">слово вернётся сегодня</small>
+             </button>`
+      }
+    </div>`;
+}
+
+const GRADE_BTN = {
+  [GRADE.AGAIN]: { cls: 'again', label: 'Не помню', hint: 'снова сегодня' },
+  [GRADE.HARD]: { cls: 'hard', label: 'Трудно', hint: 'скоро' },
+  [GRADE.GOOD]: { cls: 'good', label: 'Помню', hint: 'обычный интервал' },
+  [GRADE.EASY]: { cls: 'easy', label: 'Легко', hint: 'надолго' },
+};
+
+function gradeRow(grades) {
+  return `<div class="grade-row" style="grid-template-columns:repeat(${grades.length},1fr)">
+    ${grades
+      .map((g) => {
+        const b = GRADE_BTN[g];
+        return `<button class="grade-btn ${b.cls}" data-grade="${g}">${b.label}<small>${b.hint}</small></button>`;
+      })
+      .join('')}
+  </div>`;
+}
+
+/** Текущая сторона карточки — нужна и обработчикам, и проверке. */
+function currentDirection() {
+  return q && q.queue.length ? parseCardId(q.queue[0]).direction : null;
+}
+
+function reveal(correct) {
   q.revealed = true;
-  const { wordId } = parseCardId(q.queue[0]);
-  const w = getWord(wordId);
+  q.correct = correct;
+  const w = getWord(parseCardId(q.queue[0]).wordId);
   if (w && loadState().settings.autoSpeak) speak(w.en);
   return true;
 }
 
+export function syncTyped(value) {
+  if (q) q.typed = value;
+}
+
+/**
+ * Открыть ответ без проверки можно только на узнавании.
+ * На воспроизведении это была бы та самая лазейка.
+ */
+export function handleReveal() {
+  if (!q || !q.queue.length || q.revealed) return false;
+  if (currentDirection() === DIRECTION.PROD) return false;
+  return reveal(null);
+}
+
+export function handleCheck() {
+  if (!q || !q.queue.length || q.revealed) return false;
+  if (currentDirection() !== DIRECTION.PROD) return false;
+
+  // Пустое поле — не ответ: засчитать его ошибкой значило бы наказать
+  // за случайный клик, а верным — открыть дыру шире прежней.
+  const answer = normalize(q.typed);
+  if (!answer) return false;
+
+  const w = getWord(parseCardId(q.queue[0]).wordId);
+  return reveal(answer === normalize(w.en));
+}
+
+/** Честное «не помню» до показа ответа — признание, а не самооценка. */
+export function handleGiveUp() {
+  if (!q || !q.queue.length || q.revealed) return false;
+  if (currentDirection() !== DIRECTION.PROD) return false;
+  return reveal(false);
+}
+
 export function handleGrade(grade) {
   if (!q || !q.revealed) return false;
-  const id = q.queue.shift();
   const g = Number(grade);
+
+  // После письменной проверки набор оценок задан её результатом.
+  // Проверяем и здесь, а не только при отрисовке: клик по устаревшей
+  // разметке не должен отодвигать невоспроизведённое слово.
+  if (q.correct !== null && !allowedGrades(q.correct).includes(g)) return false;
+
+  const id = q.queue.shift();
   review(id, g);
 
   // Не вспомнил — карточка вернётся в конец очереди этой же сессии.
   if (g < 3) q.queue.push(id);
 
   q.revealed = false;
+  q.correct = null;
+  q.typed = '';
   q.done += 1;
   addXp(g >= 3 ? 5 : 1);
   touchStudyDay();

@@ -133,6 +133,10 @@ function render() {
       <main class="main">${renderBody()}</main>
     </div>
   `;
+
+  // Карточка воспроизведения без ввода не работает, поэтому поле забирает
+  // фокус само — иначе на каждом слове пришлось бы сначала целиться в него.
+  document.querySelector('[data-prod-input]')?.focus();
 }
 
 /* ---------- Делегированные обработчики ---------- */
@@ -194,6 +198,16 @@ app.addEventListener('click', (e) => {
   // Повторение
   if (target('[data-reveal]')) {
     if (Review.handleReveal()) render();
+    return;
+  }
+  if (target('[data-prod-check]')) {
+    const input = document.querySelector('[data-prod-input]');
+    if (input) Review.syncTyped(input.value);
+    if (Review.handleCheck()) render();
+    return;
+  }
+  if (target('[data-prod-giveup]')) {
+    if (Review.handleGiveUp()) render();
     return;
   }
   const grade = target('[data-grade]');
@@ -329,6 +343,9 @@ app.addEventListener('input', (e) => {
   const dictation = e.target.closest('[data-listen-input]');
   if (dictation) Listening.syncTyped(dictation.value);
 
+  const prod = e.target.closest('[data-prod-input]');
+  if (prod) Review.syncTyped(prod.value);
+
   // Счётчик слов обновляем точечно, чтобы не терять курсор в тексте
   const essay = e.target.closest('[data-writing-input]');
   if (essay) {
@@ -352,6 +369,13 @@ app.addEventListener('keydown', (e) => {
   if (dictation) {
     Listening.syncTyped(dictation.value);
     if (Listening.handleCheck()) render();
+    return;
+  }
+
+  const prod = e.target.closest('[data-prod-input]');
+  if (prod) {
+    Review.syncTyped(prod.value);
+    if (Review.handleCheck()) render();
   }
 });
 
