@@ -6,7 +6,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const { VOCAB, VOCAB_BY_ID } = await import('../src/data/vocab.js');
-const { CURRICULUM, allLessons, unlockedVocabIds } = await import('../src/data/curriculum.js');
+const { CURRICULUM, allLessons, unlockedVocabIds, listeningPhrases, nextLesson } = await import(
+  '../src/data/curriculum.js'
+);
 
 test('id слов уникальны', () => {
   const seen = new Set();
@@ -109,6 +111,90 @@ test('слова из непройденных уроков остаются з�
   for (const id of onlyInSecond) {
     assert.ok(!unlocked.includes(id), `слово "${id}" открылось до своего урока`);
   }
+});
+
+/* ---------- Отбор материала по пройденному ---------- */
+
+test('без пройденных уроков диктант пуст', () => {
+  // Та же логика, что и со словами: без урока материал не открывается
+  assert.deepEqual(listeningPhrases({}), []);
+});
+
+test('фразы для диктанта берутся только из пройденных уроков', () => {
+  const withDialog = allLessons().find((l) => l.theory.some((b) => b.type === 'dialog'));
+  const phrases = listeningPhrases({ [withDialog.id]: { score: 100 } });
+
+  assert.ok(phrases.length > 0, 'из урока с диалогом фразы должны появиться');
+
+  // Всё, что пришло, обязано принадлежать этому уроку
+  const ownDialogs = withDialog.theory
+    .filter((b) => b.type === 'dialog')
+    .flatMap((b) => b.lines.map(([, en]) => en));
+  const ownExamples = withDialog.vocab.map((id) => VOCAB_BY_ID[id]?.example);
+
+  for (const p of phrases) {
+    assert.ok(
+      ownDialogs.includes(p.en) || ownExamples.includes(p.en),
+      `фраза «${p.en}» не принадлежит пройденному уроку`,
+    );
+  }
+});
+
+test('реплики диалога идут раньше примеров из словаря', () => {
+  // Живая реплика ближе к настоящей речи, чем образцовое предложение
+  const withDialog = allLessons().find(
+    (l) => l.theory.some((b) => b.type === 'dialog') && l.vocab.length > 0,
+  );
+  const phrases = listeningPhrases({ [withDialog.id]: { score: 100 } });
+
+  const dialogLines = withDialog.theory
+    .filter((b) => b.type === 'dialog')
+    .flatMap((b) => b.lines.map(([, en]) => en));
+
+  const lastDialog = phrases.map((p) => dialogLines.includes(p.en)).lastIndexOf(true);
+  const firstExample = phrases.map((p) => dialogLines.includes(p.en)).indexOf(false);
+
+  if (lastDialog !== -1 && firstExample !== -1) {
+    assert.ok(lastDialog < firstExample, 'диалоги должны идти первыми');
+  }
+});
+
+test('одна и та же фраза не повторяется дважды', () => {
+  const completed = Object.fromEntries(allLessons().map((l) => [l.id, { score: 100 }]));
+  const phrases = listeningPhrases(completed);
+  const seen = phrases.map((p) => p.en.toLowerCase());
+
+  assert.equal(new Set(seen).size, seen.length, 'повторов в диктанте быть не должно');
+});
+
+test('у каждой фразы есть перевод и урок-источник', () => {
+  const completed = Object.fromEntries(allLessons().map((l) => [l.id, { score: 100 }]));
+  for (const p of listeningPhrases(completed)) {
+    assert.ok(p.en, 'английский текст');
+    assert.ok(p.ru, `перевод для «${p.en}»`);
+    assert.ok(p.source, `урок-источник для «${p.en}»`);
+  }
+});
+
+test('следующий урок — первый непройденный по порядку', () => {
+  const all = allLessons();
+
+  assert.equal(nextLesson({}).id, all[0].id, 'с чистого листа — самый первый');
+
+  const afterFirst = nextLesson({ [all[0].id]: { score: 100 } });
+  assert.equal(afterFirst.id, all[1].id, 'дальше следующий по порядку');
+
+  const allDone = Object.fromEntries(all.map((l) => [l.id, { score: 100 }]));
+  assert.equal(nextLesson(allDone), null, 'когда всё пройдено — предлагать нечего');
+});
+
+test('пропущенный в середине урок снова становится следующим', () => {
+  const all = allLessons();
+  // Прошли всё, кроме второго
+  const completed = Object.fromEntries(
+    all.filter((l) => l.id !== all[1].id).map((l) => [l.id, { score: 100 }]),
+  );
+  assert.equal(nextLesson(completed).id, all[1].id, 'пробел в середине не должен теряться');
 });
 
 test('уровни идут по возрастанию и имеют цель', () => {
