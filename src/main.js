@@ -9,6 +9,7 @@ import { initAutoSync, syncStatus, isEnabled as autoSyncEnabled } from './core/a
 import { renderDashboard } from './views/dashboard.js';
 import { renderRoadmap } from './views/roadmap.js';
 import { renderVocab, setFilter, setQuery } from './views/vocab.js';
+import { renderProgress } from './views/progress.js';
 import { esc } from './core/ui.js';
 import {
   renderSettings,
@@ -41,6 +42,7 @@ const NAV = [
   { id: 'listening', icon: '🎧', label: 'Аудирование' },
   { id: 'writing', icon: '✍️', label: 'Письмо' },
   { id: 'vocab', icon: '📖', label: 'Словарь' },
+  { id: 'progress', icon: '📈', label: 'Разбор' },
   { id: 'settings', icon: '⚙️', label: 'Настройки' },
 ];
 
@@ -99,6 +101,8 @@ function renderBody() {
       return Writing.renderWriting();
     case 'vocab':
       return renderVocab();
+    case 'progress':
+      return renderProgress();
     case 'settings':
       return renderSettings();
     default:

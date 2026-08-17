@@ -1,0 +1,197 @@
+import { loadState } from '../core/storage.js';
+import {
+  reviewDebt,
+  sideBalance,
+  weakLessons,
+  levelProgress,
+  activity,
+  vocabSummary,
+  insights,
+} from '../core/analytics.js';
+import { esc, progressBar, plural } from '../core/ui.js';
+
+/**
+ * Экран разбора прогресса.
+ *
+ * Главное здесь не цифры, а вывод: счётчики вроде «11 уроков, 912 очков»
+ * ничего не говорят о том, идёт ли учёба. Поэтому наблюдения стоят
+ * первыми, а таблицы — под ними, для тех, кто хочет проверить.
+ */
+
+const LEVEL_CLASS = { warn: 'warn', info: 'tip', ok: 'tip' };
+const LEVEL_LABEL = { warn: 'Узкое место', info: 'Стоит учесть', ok: 'В порядке' };
+
+function renderInsights(state) {
+  const found = insights(state);
+  if (!found.length) {
+    return `
+      <div class="callout tip">
+        <span class="callout-label">Пока рано</span>
+        Пройди первый урок и загляни в повторения — после этого здесь
+        появится разбор.
+      </div>`;
+  }
+
+  return found
+    .map(
+      (i) => `
+      <div class="callout ${LEVEL_CLASS[i.level]}">
+        <span class="callout-label">${esc(LEVEL_LABEL[i.level])}</span>
+        <strong>${esc(i.title)}</strong><br />${esc(i.text)}
+      </div>`,
+    )
+    .join('');
+}
+
+function renderDebt(state) {
+  const d = reviewDebt(state);
+  if (!d.unlocked) return '';
+
+  const percent = (d.started / d.unlocked) * 100;
+  const preview = d.words.slice(0, 12);
+
+  return `
+    <h2>Слова в работе</h2>
+    <div class="card">
+      <div class="row-between mb-4">
+        <span class="dim">Заведено в память</span>
+        <strong>${d.started} из ${d.unlocked}</strong>
+      </div>
+      ${progressBar(percent, d.waiting === 0)}
+
+      ${
+        d.waiting
+          ? `<div class="faint mt-4">
+              Ждут очереди: ${plural(d.waiting, 'слово', 'слова', 'слов')}.
+              Портал даёт по 8 новых за сессию — это примерно
+              ${plural(Math.ceil(d.waiting / 8), 'заход', 'захода', 'заходов')}.
+            </div>
+            <div class="row mt-4" style="flex-wrap:wrap;gap:6px">
+              ${preview.map((w) => `<span class="chip">${esc(w)}</span>`).join('')}
+              ${d.waiting > preview.length ? `<span class="chip faint">и ещё ${d.waiting - preview.length}</span>` : ''}
+            </div>
+            <button class="btn btn-primary mt-4" data-nav="review">Разобрать</button>`
+          : '<div class="faint mt-4">Всё открытое заведено в память — можно брать следующий урок.</div>'
+      }
+    </div>`;
+}
+
+function renderSides(state) {
+  const s = sideBalance(state);
+  if (!s.recognition && !s.production) return '';
+
+  return `
+    <h2>Узнавание и речь</h2>
+    <div class="grid grid-3">
+      <div class="stat">
+        <div class="stat-value">${s.recognition}</div>
+        <div class="stat-label">👁 узнавание</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" style="color:${s.production ? 'var(--green)' : 'var(--amber)'}">${s.production}</div>
+        <div class="stat-label">✍️ воспроизведение</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">${s.readyForProduction}</div>
+        <div class="stat-label">готовы к обратной стороне</div>
+      </div>
+    </div>
+    <p class="faint mt-2">
+      Узнавания хватает, чтобы читать. Говорить получается только тогда,
+      когда натренирована обратная сторона.
+    </p>`;
+}
+
+function renderActivity(state) {
+  const days = activity(state, 14);
+  const max = Math.max(...days.map((d) => d.count), 1);
+  const total = days.reduce((n, d) => n + d.count, 0);
+  const active = days.filter((d) => d.count > 0).length;
+
+  return `
+    <h2>Последние две недели</h2>
+    <div class="card">
+      <div class="row" style="align-items:flex-end;gap:4px;height:80px">
+        ${days
+          .map((d) => {
+            const h = d.count ? Math.max(8, (d.count / max) * 76) : 3;
+            const color = d.count ? 'var(--accent)' : 'var(--border)';
+            return `<div title="${esc(d.date)}: ${d.count}" style="flex:1;height:${h}px;background:${color};border-radius:3px"></div>`;
+          })
+          .join('')}
+      </div>
+      <div class="faint mt-4">
+        ${plural(active, 'день', 'дня', 'дней')} с занятиями,
+        ${plural(total, 'повторение', 'повторения', 'повторений')} всего.
+      </div>
+    </div>`;
+}
+
+function renderLevels(state) {
+  const levels = levelProgress(state);
+  return `
+    <h2>По уровням</h2>
+    <div class="card">
+      ${levels
+        .map((l) => {
+          const percent = l.total ? (l.done / l.total) * 100 : 0;
+          return `
+            <div class="row-between mt-2">
+              <span class="level-code${l.total && l.done === l.total ? ' done' : ''}">${esc(l.code)}</span>
+              <span class="faint">${l.done} / ${l.total}</span>
+            </div>
+            <div class="mt-2">${progressBar(percent, l.total > 0 && l.done === l.total)}</div>`;
+        })
+        .join('')}
+    </div>`;
+}
+
+function renderWeak(state) {
+  const weak = weakLessons(state);
+  if (!weak.length) return '';
+
+  return `
+    <h2>Стоит перепройти</h2>
+    <div class="card">
+      <p class="faint" style="margin-top:0">
+        Следующие уроки опираются на эти — пробел здесь тянется дальше.
+      </p>
+      ${weak
+        .map(
+          (l) => `
+        <button class="lesson-row" data-nav="lesson:${esc(l.id)}">
+          <span class="level-code">${esc(l.level)}</span>
+          <span style="flex:1">${esc(l.title)}</span>
+          <span style="color:var(--amber)">${l.score}%</span>
+        </button>`,
+        )
+        .join('')}
+    </div>`;
+}
+
+export function renderProgress() {
+  const state = loadState();
+  const v = vocabSummary(state);
+
+  return `
+    <h1>Разбор прогресса</h1>
+    <p class="subtitle">
+      Не сколько сделано, а что из этого держится в памяти и что мешает дальше.
+    </p>
+
+    ${renderInsights(state)}
+
+    <div class="grid grid-4 mt-6">
+      <div class="stat"><div class="stat-value">${state.streak}🔥</div><div class="stat-label">дней подряд</div></div>
+      <div class="stat"><div class="stat-value">${Object.keys(state.lessons || {}).length}</div><div class="stat-label">уроков пройдено</div></div>
+      <div class="stat"><div class="stat-value">${v.learning}</div><div class="stat-label">слов в изучении</div></div>
+      <div class="stat"><div class="stat-value" style="color:var(--green)">${v.mastered}</div><div class="stat-label">слов выучено</div></div>
+    </div>
+
+    ${renderDebt(state)}
+    ${renderSides(state)}
+    ${renderActivity(state)}
+    ${renderWeak(state)}
+    ${renderLevels(state)}
+  `;
+}

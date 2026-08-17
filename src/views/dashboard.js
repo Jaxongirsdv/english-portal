@@ -2,6 +2,7 @@ import { loadState, todayCount } from '../core/storage.js';
 import { allVocabIds, getWord } from '../data/vocab.js';
 import { dueCardIds, stats } from '../core/srs.js';
 import { CURRICULUM, allLessons, nextLesson } from '../data/curriculum.js';
+import { insights } from '../core/analytics.js';
 import { esc, progressBar, plural } from '../core/ui.js';
 
 export function renderDashboard() {
@@ -61,6 +62,22 @@ export function renderDashboard() {
           </div>
         </div>`
       : ''}
+
+    ${(() => {
+      // Главное наблюдение показываем и здесь: узкое место, о котором
+      // человек не знает, не поможет ему, даже если лежит в отдельном разделе
+      const [top] = insights(state);
+      if (!top || top.level === 'ok') return '';
+      return `<div class="card mb-4" style="border-color:var(--amber)">
+          <div class="row-between">
+            <div>
+              <h3 style="margin:0 0 2px">${esc(top.title)}</h3>
+              <div class="faint">${esc(top.text)}</div>
+            </div>
+            <button class="btn" data-nav="progress">Разбор</button>
+          </div>
+        </div>`;
+    })()}
 
     ${next
       ? `<div class="card mb-4">
