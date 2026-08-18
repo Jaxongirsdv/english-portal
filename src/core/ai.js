@@ -155,7 +155,7 @@ function keyOf(provider) {
  */
 let anthropicPromise = null;
 
-async function reviewWithClaude(input) {
+async function askClaude({ system, prompt, schema, required }) {
   const apiKey = keyOf('claude');
   if (!anthropicPromise) {
     anthropicPromise = import('@anthropic-ai/sdk').then(({ default: A }) => A);
@@ -166,7 +166,7 @@ async function reviewWithClaude(input) {
   const response = await client.messages.create({
     model: 'claude-opus-5',
     max_tokens: 16000,
-    system: SYSTEM,
+    system,
     // Задача узкая и хорошо описанная — средний уровень усилий даёт
     // то же качество разбора заметно дешевле
     output_config: {
@@ -175,17 +175,17 @@ async function reviewWithClaude(input) {
         type: 'json_schema',
         schema: {
           type: 'object',
-          properties: REVIEW_FIELDS,
-          required: REQUIRED,
+          properties: schema,
+          required,
           additionalProperties: false,
         },
       },
     },
-    messages: [{ role: 'user', content: buildTask(input) }],
+    messages: [{ role: 'user', content: prompt }],
   });
 
   if (response.stop_reason === 'refusal') {
-    throw new Error('Модель отказалась разбирать этот текст.');
+    throw new Error('Модель отказалась отвечать на это.');
   }
   const block = response.content.find((b) => b.type === 'text');
   if (!block) throw new Error('Пустой ответ от модели.');
@@ -197,7 +197,7 @@ async function reviewWithClaude(input) {
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 const GEMINI_MODEL = 'gemini-3.6-flash';
 
-async function reviewWithGemini(input) {
+async function askGemini({ system, prompt, schema, required }) {
   const apiKey = keyOf('gemini');
 
   const response = await fetch(GEMINI_URL, {
@@ -207,13 +207,13 @@ async function reviewWithGemini(input) {
       model: GEMINI_MODEL,
       // Отдельного поля для системной инструкции здесь нет — кладём её
       // в начало запроса
-      input: `${SYSTEM}\n\n${buildTask(input)}`,
+      input: `${system}\n\n${prompt}`,
       response_format: {
         type: 'text',
         mime_type: 'application/json',
         // Без additionalProperties: схему принимает не любой набор
         // ключевых слов JSON Schema
-        schema: { type: 'object', properties: REVIEW_FIELDS, required: REQUIRED },
+        schema: { type: 'object', properties: schema, required },
       },
     }),
   });
@@ -252,14 +252,31 @@ export function describeError(err) {
   if (!status) {
     return (
       'Запрос не дошёл до сервиса. Обычно это обрыв связи, блокировщик ' +
-      'в браузере или VPN. Проверка письма — единственный раздел, ' +
-      'которому нужен интернет.'
+      'в браузере или VPN. Интернет нужен только разбору письма ' +
+      'и разговору — остальные разделы работают без сети.'
     );
   }
-  return `Не удалось проверить: ${err?.detail || err?.message || 'неизвестная ошибка'}`;
+  return `Сервис ответил ошибкой: ${err?.detail || err?.message || 'неизвестная ошибка'}`;
 }
 
 /** Отправляет работу на проверку выбранным провайдером. */
+/**
+ * Единственный способ обратиться к модели.
+ *
+ * Провайдеры различаются формой запроса, но не задачей: и разбор письма,
+ * и разговор просят структурированный ответ по схеме. Держать две копии
+ * этих реализаций значило бы чинить любую ошибку сети дважды.
+ */
+export async function askModel({ system, prompt, schema, required }) {
+  const ask = currentProvider() === 'claude' ? askClaude : askGemini;
+  return ask({ system, prompt, schema, required });
+}
+
 export async function reviewWriting(input) {
-  return currentProvider() === 'claude' ? reviewWithClaude(input) : reviewWithGemini(input);
+  return askModel({
+    system: SYSTEM,
+    prompt: buildTask(input),
+    schema: REVIEW_FIELDS,
+    required: REQUIRED,
+  });
 }

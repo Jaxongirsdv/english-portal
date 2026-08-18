@@ -29,6 +29,7 @@ import * as Review from './views/review.js';
 import * as Pronounce from './views/pronounce.js';
 import * as Listening from './views/listening.js';
 import * as Writing from './views/writing.js';
+import * as Dialogue from './views/dialogue.js';
 
 const app = document.getElementById('app');
 
@@ -41,6 +42,7 @@ const NAV = [
   { id: 'pronounce', icon: '🎤', label: 'Произношение' },
   { id: 'listening', icon: '🎧', label: 'Аудирование' },
   { id: 'writing', icon: '✍️', label: 'Письмо' },
+  { id: 'dialogue', icon: '🗣️', label: 'Разговор' },
   { id: 'vocab', icon: '📖', label: 'Словарь' },
   { id: 'progress', icon: '📈', label: 'Разбор' },
   { id: 'settings', icon: '⚙️', label: 'Настройки' },
@@ -55,12 +57,14 @@ function navigate(target) {
   if (name !== 'pronounce') Pronounce.exitPronounce();
   if (name !== 'listening') Listening.exitListening();
   if (name !== 'writing') Writing.exitWriting();
+  if (name !== 'dialogue') Dialogue.exitDialogue();
 
   if (name === 'lesson' && param) Lesson.startLesson(param);
   if (name === 'review') Review.startReview();
   if (name === 'pronounce') Pronounce.startPronounce();
   if (name === 'listening') Listening.startListening();
   if (name === 'writing') Writing.startWriting();
+  if (name === 'dialogue') Dialogue.startDialogue();
 
   route = { name, param };
   render();
@@ -99,6 +103,8 @@ function renderBody() {
       return Listening.renderListening();
     case 'writing':
       return Writing.renderWriting();
+    case 'dialogue':
+      return Dialogue.renderDialogue();
     case 'vocab':
       return renderVocab();
     case 'progress':
@@ -298,6 +304,32 @@ app.addEventListener('click', (e) => {
     return;
   }
 
+  // Разговор
+  const scene = target('[data-scene]');
+  if (scene) {
+    if (Dialogue.chooseScenario(scene.dataset.scene)) render();
+    return;
+  }
+  if (target('[data-scene-exit]')) {
+    if (Dialogue.leaveScenario()) render();
+    return;
+  }
+  if (target('[data-chat-send]')) {
+    const input = document.querySelector('[data-chat-input]');
+    if (input) Dialogue.syncTyped(input.value);
+    Dialogue.handleSend(render); // асинхронно: перерисовывает сам
+    return;
+  }
+  if (target('[data-chat-hint]')) {
+    if (Dialogue.toggleHint()) render();
+    return;
+  }
+  const translate = target('[data-translate]');
+  if (translate) {
+    if (Dialogue.toggleTranslation(translate.dataset.translate)) render();
+    return;
+  }
+
   // Словарь
   const filter = target('[data-filter]');
   if (filter) {
@@ -370,6 +402,9 @@ app.addEventListener('input', (e) => {
   const prod = e.target.closest('[data-prod-input]');
   if (prod) Review.syncTyped(prod.value);
 
+  const chat = e.target.closest('[data-chat-input]');
+  if (chat) Dialogue.syncTyped(chat.value);
+
   // Счётчик слов обновляем точечно, чтобы не терять курсор в тексте
   const essay = e.target.closest('[data-writing-input]');
   if (essay) {
@@ -400,6 +435,13 @@ app.addEventListener('keydown', (e) => {
   if (prod) {
     Review.syncTyped(prod.value);
     if (Review.handleCheck()) render();
+    return;
+  }
+
+  const chat = e.target.closest('[data-chat-input]');
+  if (chat) {
+    Dialogue.syncTyped(chat.value);
+    Dialogue.handleSend(render);
   }
 });
 

@@ -388,6 +388,15 @@ table.theory tr:last-child td { border-bottom: none; }
 /* Варианты ответа в повторении: в две колонки, чтобы попадать пальцем */
 .choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .choice-grid .option { margin-bottom: 0; }
+/* Разговор: переписка, а не список упражнений */
+.chat { display: flex; flex-direction: column; gap: 4px; }
+.turn { max-width: 82%; padding: 12px 16px; border-radius: var(--radius); margin-bottom: 8px; }
+.turn.theirs { background: var(--bg-elev); border: 1px solid var(--border); align-self: flex-start; }
+.turn.mine { background: var(--accent-soft); border: 1px solid var(--accent); align-self: flex-end; }
+.turn-text { font-size: 16px; line-height: 1.5; }
+.turn-ru { font-size: 13px; color: var(--text-faint); margin-top: 6px; }
+.turn-tools { display: flex; gap: 4px; margin-top: 4px; }
+
 @media (max-width: 520px) { .choice-grid { grid-template-columns: 1fr; } }
 
 .option.wrong { border-color: var(--red); background: var(--red-soft); }
