@@ -11,6 +11,8 @@
  * нарисовать занятия, которых не было.
  */
 
+import { isGrammarCard } from './srs.js';
+
 /** Слово выучено при интервале 21 день — та же граница, что в srs.js. */
 const MASTERED_DAYS = 21;
 
@@ -148,7 +150,14 @@ export function mergeState(local, remote, today) {
   };
 }
 
-/** Сколько слов выучено в состоянии — для показа результата слияния. */
+
+/**
+ * Сколько слов выучено в состоянии — для показа результата слияния.
+ * Фразы грамматики лежат в тех же карточках, но здесь речь о словах,
+ * и смешивать их значило бы завышать число на экране слияния.
+ */
 export function masteredCount(state) {
-  return Object.values(state.cards || {}).filter((c) => c.interval >= MASTERED_DAYS).length;
+  return Object.entries(state.cards || {}).filter(
+    ([id, c]) => !isGrammarCard(id) && c.interval >= MASTERED_DAYS,
+  ).length;
 }

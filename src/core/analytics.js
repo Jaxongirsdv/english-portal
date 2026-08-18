@@ -12,7 +12,9 @@
 
 import { CURRICULUM, allLessons, unlockedVocabIds } from '../data/curriculum.js';
 import { VOCAB_BY_ID } from '../data/vocab.js';
-import { cardId, DIRECTION, PROD_UNLOCK_AFTER, wordProgress } from './srs.js';
+import { cardId, isGrammarCard, DIRECTION, PROD_UNLOCK_AFTER, wordProgress } from './srs.js';
+import { unlockedGrammarIds } from '../data/grammar.js';
+import { grammarStats } from './srs.js';
 
 /** С этого интервала сторона карточки считается выученной. */
 const MASTERED_DAYS = 21;
@@ -48,6 +50,9 @@ export function sideBalance(state) {
   let readyForProduction = 0;
 
   for (const id of Object.keys(cards)) {
+    // Фразы лежат в том же хранилище, но к сторонам слова отношения не имеют:
+    // без этой проверки каждая из них считалась бы лишним «узнаванием»
+    if (isGrammarCard(id)) continue;
     if (id.endsWith('::prod')) {
       production += 1;
       continue;
@@ -60,6 +65,18 @@ export function sideBalance(state) {
   }
 
   return { recognition, production, readyForProduction };
+}
+
+/**
+ * Грамматика: сколько фраз из пройденных уроков заведено в память.
+ *
+ * Отдельно от словаря намеренно. Слов можно знать сколько угодно и
+ * при этом не собрать предложения — это разные умения, и смешанная
+ * цифра скрывала бы ровно тот перекос, ради которого раздел и нужен.
+ */
+export function grammarProgress(state) {
+  const ids = unlockedGrammarIds(state.lessons || {});
+  return grammarStats(ids);
 }
 
 /** Уроки, пройденные слабо: к ним стоит вернуться. */
@@ -150,6 +167,18 @@ export function insights(state, today = new Date()) {
       text:
         `${sides.readyForProduction} слов готовы к обратной стороне. Сейчас ты их узнаёшь в тексте, ` +
         'но вспомнить, когда захочешь сказать, ещё не тренировался — это и есть разрыв между «читаю» и «говорю».',
+    });
+  }
+
+  const grammar = grammarProgress(state);
+  if (grammar.total >= 5 && grammar.started === 0) {
+    out.push({
+      level: 'warn',
+      title: 'Грамматика ни разу не повторялась',
+      text:
+        `Уроки разобрали ${grammar.total} фраз, но ни одна не заведена в память. ` +
+        'Слова портал удержит, а правила забудутся: собрать предложение — ' +
+        'отдельное умение, и тренируется оно отдельно.',
     });
   }
 

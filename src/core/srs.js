@@ -141,6 +141,57 @@ export function newProductionIds(wordIds) {
   });
 }
 
+/* ---------- Грамматика ---------- */
+
+/**
+ * Фразы живут в тех же карточках, что и слова, но под своим префиксом.
+ * Общее хранилище даёт им бесплатно и SM-2, и слияние между устройствами;
+ * префикс нужен, чтобы подсчёты по словарю не приняли фразу за слово.
+ */
+const GRAMMAR_PREFIX = 'g::';
+
+export function grammarCardId(itemId) {
+  return GRAMMAR_PREFIX + itemId;
+}
+
+export function isGrammarCard(id) {
+  return String(id).startsWith(GRAMMAR_PREFIX);
+}
+
+export function grammarItemId(cardId) {
+  return String(cardId).slice(GRAMMAR_PREFIX.length);
+}
+
+/** Фразы, которые пора повторить. */
+export function dueGrammarIds(itemIds) {
+  const state = loadState();
+  const t = today();
+  return itemIds.filter((id) => {
+    const card = state.cards[grammarCardId(id)];
+    return card && card.due <= t;
+  });
+}
+
+/** Фразы, ещё ни разу не заведённые в память. */
+export function newGrammarIds(itemIds) {
+  const state = loadState();
+  return itemIds.filter((id) => !state.cards[grammarCardId(id)]);
+}
+
+/** Сводка по фразам: сколько начато и сколько закреплено. */
+export function grammarStats(itemIds) {
+  const state = loadState();
+  let started = 0;
+  let mastered = 0;
+  for (const id of itemIds) {
+    const card = state.cards[grammarCardId(id)];
+    if (!card) continue;
+    started += 1;
+    if (card.interval >= MASTERED_DAYS) mastered += 1;
+  }
+  return { total: itemIds.length, started, mastered, untouched: itemIds.length - started };
+}
+
 /** Состояние слова по обеим сторонам. */
 export function wordProgress(wordId) {
   const state = loadState();

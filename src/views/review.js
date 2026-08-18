@@ -1,5 +1,6 @@
 import { getWord, allVocabIds } from '../data/vocab.js';
 import { unlockedVocabIds } from '../data/curriculum.js';
+import { getGrammarItem, unlockedGrammarIds } from '../data/grammar.js';
 import {
   dueCardIds,
   newRecognitionIds,
@@ -10,6 +11,11 @@ import {
   stats,
   allowedGrades,
   newCardBudget,
+  dueGrammarIds,
+  newGrammarIds,
+  grammarCardId,
+  isGrammarCard,
+  grammarItemId,
   GRADE,
   DIRECTION,
 } from '../core/srs.js';
@@ -59,27 +65,36 @@ export function startReview() {
   // его надо повторять, даже если урок потом переписали.
   const due = dueCardIds(allVocabIds());
 
+  const grammar = unlockedGrammarIds(state.lessons);
+  const dueGrammar = dueGrammarIds(grammar).map(grammarCardId);
+
   const freshProd = shuffle(newProductionIds(unlocked)).map((w) => cardId(w, DIRECTION.PROD));
+  const freshGrammar = shuffle(newGrammarIds(grammar)).map(grammarCardId);
   const freshRec = shuffle(newRecognitionIds(unlocked)).map((w) => cardId(w, DIRECTION.REC));
-  const candidates = [...freshProd, ...freshRec];
+
+  // Порядок нового: обратная сторона слова, затем фраза, затем новое слово.
+  // Воспроизведение и грамматика тренируют извлечение из памяти, узнавание —
+  // самое дешёвое и легче всего наращивается потом.
+  const candidates = [...freshProd, ...freshGrammar, ...freshRec];
 
   // Сколько нового потянуть сегодня, решает не константа, а размер долгов
   const budget = newCardBudget({
-    dueCount: due.length,
+    dueCount: due.length + dueGrammar.length,
     dailyGoal: state.settings.dailyGoal,
   });
   const fresh = candidates.slice(0, budget);
 
   q = {
-    queue: [...shuffle(due), ...fresh],
+    queue: [...shuffle([...due, ...dueGrammar]), ...fresh],
     revealed: false,
     typed: '', // набранный ответ
     heard: '', // что услышал распознаватель либо что было набрано
     verdict: null, // exact | close | wrong; null — проверки не было
+    spoken: false, // отвечали голосом или письменно — от этого зависит разбор
     status: 'idle', // idle | listening
     error: null, // сообщение распознавателя
     done: 0,
-    total: due.length + fresh.length,
+    total: due.length + dueGrammar.length + fresh.length,
     lockedOut: unlocked.length === 0,
     // Придержанные слова — не «ничего не осталось»: об этом надо сказать прямо
     heldBack: candidates.length - fresh.length,
@@ -143,9 +158,73 @@ function renderEmpty() {
     </div>`;
 }
 
+/** Текущая фраза, если впереди очереди стоит карточка грамматики. */
+function currentGrammar() {
+  if (!q || !q.queue.length || !isGrammarCard(q.queue[0])) return null;
+  return getGrammarItem(grammarItemId(q.queue[0]));
+}
+
+/**
+ * Карточка грамматики: русская фраза → английская.
+ *
+ * Только письменно. Распознаватель на целом предложении у начинающего
+ * ошибается слишком часто, и провал произношения выглядел бы как незнание
+ * грамматики — две разные вещи, которые нельзя смешивать в одной оценке.
+ */
+function renderGrammar() {
+  const item = currentGrammar();
+  if (!item) {
+    q.queue.shift();
+    return renderReview();
+  }
+
+  const progress = q.total ? ((q.total - q.queue.length) / q.total) * 100 : 0;
+
+  return `
+    <div class="row-between mb-4">
+      <button class="btn btn-ghost" data-nav="dashboard">← Выйти</button>
+      <span class="faint">Осталось: ${q.queue.length}</span>
+    </div>
+    <div class="progress mb-4"><div class="progress-bar" style="width:${progress}%"></div></div>
+
+    <div class="row mb-4" style="justify-content:center">
+      <span class="word-status learning">📐 построй фразу</span>
+    </div>
+
+    <div class="flashcard">
+      <div class="flash-word" style="font-size:26px;color:var(--accent)">${esc(item.ru)}</div>
+      <div class="flash-ipa">
+        напиши это по-английски${item.hint ? ` · подсказка: ${esc(item.hint)}` : ''}
+      </div>
+      ${
+        q.revealed
+          ? `<div class="flash-ru" style="color:var(--text);font-size:20px">
+               ${esc(item.en)} ${speakBtn(item.en)}
+             </div>
+             <div class="faint">из урока «${esc(item.lessonTitle)}» · ${esc(item.levelCode)}</div>`
+          : '<div class="dim" style="padding:14px 0">Ответ откроется после попытки</div>'
+      }
+    </div>
+
+    ${q.revealed ? renderVerdict({ en: item.en }, { phrase: true }) : renderGrammarInput()}
+  `;
+}
+
+function renderGrammarInput() {
+  return `
+    <input class="text-input" data-prod-input placeholder="Напиши предложение по-английски…"
+           value="${esc(q.typed)}" autocomplete="off" autocapitalize="off"
+           autocorrect="off" spellcheck="false" />
+    <div class="row mt-4">
+      <button class="btn btn-primary" data-prod-check>Проверить</button>
+      <button class="btn btn-ghost" data-prod-giveup>Не помню</button>
+    </div>`;
+}
+
 export function renderReview() {
   if (!q) startReview();
   if (q.queue.length === 0) return renderEmpty();
+  if (isGrammarCard(q.queue[0])) return renderGrammar();
 
   const { wordId, direction } = parseCardId(q.queue[0]);
   const w = getWord(wordId);
@@ -282,26 +361,32 @@ function renderProdControls(w) {
 }
 
 /** Разбор попытки: что именно вышло и какие оценки после этого возможны. */
-function renderVerdict(w) {
+function renderVerdict(w, { phrase = false } = {}) {
   const heard = q.heard.trim();
-  const spoken = answerMode() === 'speak';
+  const spoken = q.spoken;
 
   let tone = 'no';
   let text;
   if (q.verdict === VERDICT.EXACT) {
     tone = 'ok';
-    text = '<strong>Верно.</strong> Слово вспомнилось само — это и есть воспроизведение.';
+    text = phrase
+      ? '<strong>Верно.</strong> Фраза собрана самостоятельно — это и есть владение правилом.'
+      : '<strong>Верно.</strong> Слово вспомнилось само — это и есть воспроизведение.';
   } else if (q.verdict === VERDICT.CLOSE) {
     // Промахнулась рука или язык, но не память: слово было извлечено
     tone = 'close';
     text = `<strong>Почти.</strong> ${
       spoken ? 'Услышано' : 'Ты написал'
     } «${esc(heard)}», а нужно <strong>${esc(w.en)}</strong>.<br />
-      <span class="faint">Слово ты вспомнил, но неточно — засчитываем как «трудно».</span>`;
+      <span class="faint">${
+        phrase ? 'Фразу ты собрал верно, но написал неточно' : 'Слово ты вспомнил, но неточно'
+      } — засчитываем как «трудно».</span>`;
   } else if (heard) {
     text = `${spoken ? 'Услышано' : 'Ты написал'} «${esc(heard)}», а нужно <strong>${esc(w.en)}</strong>.`;
   } else {
-    text = `Слово не вспомнилось. Правильный ответ — <strong>${esc(w.en)}</strong>.`;
+    text = `${
+      phrase ? 'Фраза не собралась' : 'Слово не вспомнилось'
+    }. Правильный ответ — <strong>${esc(w.en)}</strong>.`;
   }
 
   const grades = allowedGrades(q.verdict);
@@ -344,19 +429,35 @@ function gradeRow(grades) {
   </div>`;
 }
 
-/** Текущая сторона карточки — нужна и обработчикам, и проверке. */
+/**
+ * Текущая сторона карточки. У фразы стороны нет вовсе: parseCardId принял бы
+ * её за узнавание слова, и «показать ответ» снова открыл бы ответ даром.
+ */
 function currentDirection() {
-  return q && q.queue.length ? parseCardId(q.queue[0]).direction : null;
+  if (!q || !q.queue.length || isGrammarCard(q.queue[0])) return null;
+  return parseCardId(q.queue[0]).direction;
 }
 
-function reveal(verdict, heard = '') {
+/** Что именно надо воспроизвести, если карточка этого требует. */
+function expectedAnswer() {
+  if (!q || !q.queue.length) return null;
+  if (isGrammarCard(q.queue[0])) return currentGrammar()?.en ?? null;
+  if (currentDirection() !== DIRECTION.PROD) return null;
+  return getWord(parseCardId(q.queue[0]).wordId)?.en ?? null;
+}
+
+function reveal(verdict, heard = '', { spoken = false } = {}) {
   q.revealed = true;
   q.verdict = verdict;
   q.heard = heard;
+  q.spoken = spoken;
   q.status = 'idle';
   q.error = null;
-  const w = getWord(parseCardId(q.queue[0]).wordId);
-  if (w && loadState().settings.autoSpeak) speak(w.en);
+
+  const sample = isGrammarCard(q.queue[0])
+    ? currentGrammar()?.en
+    : getWord(parseCardId(q.queue[0]).wordId)?.en;
+  if (sample && loadState().settings.autoSpeak) speak(sample);
   return true;
 }
 
@@ -366,34 +467,37 @@ export function syncTyped(value) {
 
 /**
  * Открыть ответ без проверки можно только на узнавании.
- * На воспроизведении это была бы та самая лазейка.
+ * Там, где ответ надо воспроизвести, это была бы та самая лазейка.
  */
 export function handleReveal() {
   if (!q || !q.queue.length || q.revealed) return false;
-  if (currentDirection() === DIRECTION.PROD) return false;
+  if (expectedAnswer() !== null) return false;
   return reveal(null);
 }
 
 export function handleCheck() {
   if (!q || !q.queue.length || q.revealed || q.status === 'listening') return false;
-  if (currentDirection() !== DIRECTION.PROD) return false;
+  const expected = expectedAnswer();
+  if (expected === null) return false;
 
   // Пустое поле — не ответ: засчитать его ошибкой значило бы наказать
   // за случайный клик, а верным — открыть дыру шире прежней.
   if (!normalize(q.typed)) return false;
 
-  const w = getWord(parseCardId(q.queue[0]).wordId);
   // Тот же разбор, что и для речи: опечатка — это «почти», а не провал,
-  // но порог зависит от длины слова, иначе tree сошло бы за three
-  const { verdict } = scoreAttempt(w.en, [q.typed]);
+  // но порог зависит от длины образца, иначе tree сошло бы за three
+  const { verdict } = scoreAttempt(expected, [q.typed]);
   return reveal(verdict, q.typed.trim());
 }
 
 export async function handleSpeak(rerender) {
   if (!q || !q.queue.length || q.revealed || q.status === 'listening') return;
+  // Голосом отвечают только на слово: распознаватель на целом предложении
+  // у начинающего ошибается слишком часто, и провал произношения выглядел бы
+  // как незнание грамматики
   if (currentDirection() !== DIRECTION.PROD) return;
 
-  const w = getWord(parseCardId(q.queue[0]).wordId);
+  const expected = expectedAnswer();
   q.status = 'listening';
   q.error = null;
   rerender();
@@ -402,8 +506,8 @@ export async function handleSpeak(rerender) {
     const alternatives = await listen({ lang: 'en-US' });
     // Пока шла запись, карточку могли закрыть другим способом
     if (!q || q.revealed || !q.queue.length) return;
-    const { verdict, heard } = scoreAttempt(w.en, alternatives);
-    reveal(verdict, heard);
+    const { verdict, heard } = scoreAttempt(expected, alternatives);
+    reveal(verdict, heard, { spoken: true });
   } catch (err) {
     if (!q) return;
     q.status = 'idle';
@@ -415,7 +519,7 @@ export async function handleSpeak(rerender) {
 /** Честное «не помню» до показа ответа — признание, а не самооценка. */
 export function handleGiveUp() {
   if (!q || !q.queue.length || q.revealed || q.status === 'listening') return false;
-  if (currentDirection() !== DIRECTION.PROD) return false;
+  if (expectedAnswer() === null) return false;
   return reveal(VERDICT.WRONG);
 }
 
@@ -437,6 +541,7 @@ export function handleGrade(grade) {
   q.revealed = false;
   q.verdict = null;
   q.heard = '';
+  q.spoken = false;
   q.typed = '';
   q.error = null;
   q.status = 'idle';

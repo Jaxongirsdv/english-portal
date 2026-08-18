@@ -23,8 +23,9 @@ globalThis.localStorage = {
 
 const { resetState, update, loadState, today } = await import('../src/core/storage.js');
 const { allLessons, unlockedVocabIds } = await import('../src/data/curriculum.js');
+const { allGrammarItems } = await import('../src/data/grammar.js');
 const { getWord } = await import('../src/data/vocab.js');
-const { cardId, getCard, GRADE, DIRECTION } = await import('../src/core/srs.js');
+const { cardId, getCard, grammarCardId, GRADE, DIRECTION } = await import('../src/core/srs.js');
 const Review = await import('../src/views/review.js');
 
 const LESSON = allLessons().find((l) => l.vocab.length >= 5);
@@ -326,6 +327,105 @@ test('новая сессия после разгребённого долга �
     !Review.renderReview().includes('empty-icon'),
     'долгов больше нет — бюджет освободился под новые слова',
   );
+});
+
+/* ---------- Карточка грамматики ---------- */
+
+/**
+ * Сессия, в которой впереди очереди стоит фраза из пройденного урока.
+ *
+ * Урок берём ровно с одной фразой: несколько фраз перемешиваются, и тест
+ * проверял бы случайную из них — ошибка, на которой он уже спотыкался.
+ */
+function grammarSession() {
+  const perLesson = {};
+  for (const it of allGrammarItems()) (perLesson[it.lessonId] ||= []).push(it);
+  const only = Object.values(perLesson).find((list) => list.length === 1 && list[0].en.length >= 10);
+  assert.ok(only, 'нужен урок с единственной длинной фразой');
+  const item = only[0];
+
+  resetState();
+  update((s) => {
+    s.lessons = { [item.lessonId]: { completedAt: '2026-08-16T00:00:00Z', score: 100 } };
+    // Словам этого урока даём карточки с датой в будущем: тогда в очереди
+    // не окажется ничего, кроме самой фразы
+    for (const wid of unlockedVocabIds(s.lessons)) {
+      s.cards[cardId(wid, DIRECTION.REC)] = card();
+    }
+  });
+  Review.startReview();
+  return item;
+}
+
+test('фраза спрашивается по-русски и без готового ответа', () => {
+  const item = grammarSession();
+  const html = Review.renderReview();
+
+  assert.ok(html.includes('построй фразу'), 'карточка фразы, а не слова');
+  assert.ok(html.includes(item.ru), 'русская сторона на месте');
+  assert.ok(!html.includes(item.en), 'английская — нет');
+  assert.ok(html.includes('data-prod-input'), 'отвечать надо письменно');
+});
+
+test('ответ на фразу нельзя открыть даром', () => {
+  const item = grammarSession();
+
+  assert.equal(Review.handleReveal(), false, 'иначе вернулась бы прежняя лазейка');
+  assert.equal(Review.handleGrade(GRADE.GOOD), false, 'и оценка без попытки тоже');
+  assert.ok(!Review.renderReview().includes(item.en));
+});
+
+test('верно построенная фраза засчитывается', () => {
+  const item = grammarSession();
+  Review.syncTyped(item.en.toUpperCase() + '!');
+
+  assert.equal(Review.handleCheck(), true);
+  assert.ok(Review.renderReview().includes('Верно'), 'регистр и точка роли не играют');
+  assert.equal(Review.handleGrade(GRADE.GOOD), true);
+  assert.ok(getCard(grammarCardId(item.id)).reps >= 1, 'прогресс записан под id фразы');
+});
+
+test('опечатка во фразе остаётся опечаткой', () => {
+  const item = grammarSession();
+  Review.syncTyped(item.en.slice(0, -1));
+  Review.handleCheck();
+
+  assert.ok(Review.renderReview().includes('Почти'));
+  assert.equal(Review.handleGrade(GRADE.GOOD), false, '«помню» за опечатку не даётся');
+  assert.equal(Review.handleGrade(GRADE.HARD), true);
+});
+
+test('перепутанный порядок слов — это ошибка, а не опечатка', () => {
+  const item = grammarSession();
+  Review.syncTyped(item.en.split(' ').reverse().join(' '));
+  Review.handleCheck();
+
+  const html = Review.renderReview();
+  assert.ok(html.includes(item.en), 'правильный вариант показан');
+  assert.equal(Review.handleGrade(GRADE.HARD), false, 'иначе повтор отодвинулся бы');
+  assert.equal(Review.handleGrade(GRADE.AGAIN), true);
+  assert.equal(getCard(grammarCardId(item.id)).due, today(), 'фраза вернётся сегодня');
+});
+
+test('на фразу не отвечают голосом', async () => {
+  const item = grammarSession();
+  withEngine(hears(item.en));
+  Review.setAnswerMode('speak');
+
+  const html = Review.renderReview();
+  assert.ok(!html.includes('data-prod-speak'), 'кнопки записи на фразе быть не должно');
+  assert.ok(html.includes('data-prod-input'), 'только письменно');
+
+  await Review.handleSpeak(() => {});
+  assert.ok(!Review.renderReview().includes('Верно'), 'запись не должна ничего засчитать');
+});
+
+test('«не помню» на фразе открывает ответ, но не зачитывает', () => {
+  const item = grammarSession();
+
+  assert.equal(Review.handleGiveUp(), true);
+  assert.ok(Review.renderReview().includes(item.en));
+  assert.equal(Review.handleGrade(GRADE.GOOD), false);
 });
 
 /* ---------- Узнавание работает по-прежнему ---------- */

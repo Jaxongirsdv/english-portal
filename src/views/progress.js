@@ -2,6 +2,7 @@ import { loadState } from '../core/storage.js';
 import {
   reviewDebt,
   sideBalance,
+  grammarProgress,
   weakLessons,
   levelProgress,
   activity,
@@ -102,6 +103,39 @@ function renderSides(state) {
     </p>`;
 }
 
+/**
+ * Грамматика показана отдельной строкой, а не подмешана к словарю:
+ * знать четыреста слов и не собрать предложения — обычное дело,
+ * и общая цифра прятала бы ровно этот перекос.
+ */
+function renderGrammar(state) {
+  const g = grammarProgress(state);
+  if (!g.total) return '';
+
+  return `
+    <h2>Грамматика</h2>
+    <div class="grid grid-3">
+      <div class="stat">
+        <div class="stat-value">${g.untouched}</div>
+        <div class="stat-label">не начато</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" style="color:${g.started ? 'var(--amber)' : 'var(--text)'}">${g.started}</div>
+        <div class="stat-label">в изучении</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" style="color:var(--green)">${g.mastered}</div>
+        <div class="stat-label">закреплено</div>
+      </div>
+    </div>
+    ${progressBar((g.started / g.total) * 100, g.started === g.total)}
+    <p class="faint mt-2">
+      ${plural(g.total, 'фраза', 'фразы', 'фраз')} из пройденных уроков.
+      Раньше упражнения проходились один раз и исчезали — теперь правила
+      повторяются наравне со словами.
+    </p>`;
+}
+
 function renderActivity(state) {
   const days = activity(state, 14);
   const max = Math.max(...days.map((d) => d.count), 1);
@@ -190,6 +224,7 @@ export function renderProgress() {
 
     ${renderDebt(state)}
     ${renderSides(state)}
+    ${renderGrammar(state)}
     ${renderActivity(state)}
     ${renderWeak(state)}
     ${renderLevels(state)}
