@@ -30,6 +30,7 @@ import * as Pronounce from './views/pronounce.js';
 import * as Listening from './views/listening.js';
 import * as Writing from './views/writing.js';
 import * as Dialogue from './views/dialogue.js';
+import * as Reading from './views/reading.js';
 
 const app = document.getElementById('app');
 
@@ -41,6 +42,7 @@ const NAV = [
   { id: 'review', icon: '🔁', label: 'Повторение' },
   { id: 'pronounce', icon: '🎤', label: 'Произношение' },
   { id: 'listening', icon: '🎧', label: 'Аудирование' },
+  { id: 'reading', icon: '📕', label: 'Чтение' },
   { id: 'writing', icon: '✍️', label: 'Письмо' },
   { id: 'dialogue', icon: '🗣️', label: 'Разговор' },
   { id: 'vocab', icon: '📖', label: 'Словарь' },
@@ -58,6 +60,7 @@ function navigate(target) {
   if (name !== 'listening') Listening.exitListening();
   if (name !== 'writing') Writing.exitWriting();
   if (name !== 'dialogue') Dialogue.exitDialogue();
+  if (name !== 'reading') Reading.exitReading();
 
   if (name === 'lesson' && param) Lesson.startLesson(param);
   if (name === 'review') Review.startReview();
@@ -65,6 +68,7 @@ function navigate(target) {
   if (name === 'listening') Listening.startListening();
   if (name === 'writing') Writing.startWriting();
   if (name === 'dialogue') Dialogue.startDialogue();
+  if (name === 'reading') Reading.startReading();
 
   route = { name, param };
   render();
@@ -105,6 +109,8 @@ function renderBody() {
       return Writing.renderWriting();
     case 'dialogue':
       return Dialogue.renderDialogue();
+    case 'reading':
+      return Reading.renderReading();
     case 'vocab':
       return renderVocab();
     case 'progress':
@@ -301,6 +307,34 @@ app.addEventListener('click', (e) => {
   }
   if (target('[data-writing-retry]')) {
     if (Writing.handleRetry()) render();
+    return;
+  }
+
+  // Чтение
+  const textCard = target('[data-text]');
+  if (textCard) {
+    if (Reading.openText(textCard.dataset.text)) render();
+    return;
+  }
+  if (target('[data-reading-back]')) {
+    if (Reading.backToList()) render();
+    return;
+  }
+  if (target('[data-reading-quiz]')) {
+    if (Reading.startQuestions()) render();
+    return;
+  }
+  if (target('[data-reading-speak]')) {
+    Reading.speakText();
+    return;
+  }
+  const readingAnswer = target('[data-reading-answer]');
+  if (readingAnswer) {
+    if (Reading.answerQuestion(readingAnswer.dataset.readingAnswer)) render();
+    return;
+  }
+  if (target('[data-reading-next]')) {
+    if (Reading.nextQuestion()) render();
     return;
   }
 
