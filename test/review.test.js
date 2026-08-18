@@ -255,6 +255,79 @@ test('во время записи карточку нельзя сдать ил
   assert.equal(Review.handleGrade(GRADE.GOOD), true, 'после записи всё работает');
 });
 
+/* ---------- Сколько нового берётся за сессию ---------- */
+
+/**
+ * Сессия с заданной дневной целью и заданным числом просроченных карточек.
+ * Слова урока, оставшиеся без карточки, становятся кандидатами на новое.
+ */
+function budgetSession({ goal, overdue = 0 }) {
+  resetState();
+  const lessonWords = LESSON.vocab.map((v) => (typeof v === 'string' ? v : v.id));
+  update((s) => {
+    s.lessons = { [LESSON.id]: { completedAt: '2026-08-16T00:00:00Z', score: 100 } };
+    s.settings.dailyGoal = goal;
+    for (const wid of lessonWords.slice(0, overdue)) {
+      s.cards[cardId(wid, DIRECTION.REC)] = card({ due: today() });
+    }
+  });
+  Review.startReview();
+}
+
+/** Проходит всю очередь, отвечая «помню» на узнавание. */
+function clearQueue() {
+  for (let guard = 0; guard < 200; guard++) {
+    if (Review.renderReview().includes('empty-icon')) return;
+    assert.ok(Review.handleReveal(), 'в этих сессиях бывают только карточки узнавания');
+    Review.handleGrade(GRADE.GOOD);
+  }
+  assert.fail('очередь не кончилась — похоже, карточки возвращаются бесконечно');
+}
+
+test('просроченное вытесняет новое, и об этом говорится прямо', () => {
+  // Цель равна долгу: места под новые слова не остаётся вовсе
+  budgetSession({ goal: 1, overdue: 1 });
+  clearQueue();
+
+  const html = Review.renderReview();
+  assert.ok(html.includes('Придержано'), 'новые слова были, но их не предложили');
+  assert.ok(
+    html.includes('Просроченные повторения занимали всю дневную цель'),
+    'причина названа, иначе это выглядит как поломка',
+  );
+  assert.ok(!html.includes('Все открытые слова повторены'), 'а это была бы неправда');
+});
+
+test('придержанные слова предлагаются одной кнопкой, а не прячутся', () => {
+  budgetSession({ goal: 4 }); // бюджет 2, слов в уроке заметно больше
+  clearQueue();
+
+  const html = Review.renderReview();
+  assert.ok(html.includes('ждут') || html.includes('ждёт'), 'сказано, что слова остались');
+  assert.ok(html.includes('Взять ещё слов'), 'и есть чем продолжить, не уходя с экрана');
+});
+
+test('когда придерживать нечего, лишней кнопки не появляется', () => {
+  budgetSession({ goal: 40 }); // бюджета хватает на все слова урока
+  clearQueue();
+
+  const html = Review.renderReview();
+  assert.ok(!html.includes('Взять ещё слов'), 'предлагать нечего');
+  assert.ok(!html.includes('Придержано'));
+});
+
+test('новая сессия после разгребённого долга снова берёт слова', () => {
+  budgetSession({ goal: 1, overdue: 1 });
+  clearQueue();
+
+  // Ровно то, что делает кнопка «Взять ещё слов»
+  Review.startReview();
+  assert.ok(
+    !Review.renderReview().includes('empty-icon'),
+    'долгов больше нет — бюджет освободился под новые слова',
+  );
+});
+
 /* ---------- Узнавание работает по-прежнему ---------- */
 
 test('на узнавании самооценка сохраняется целиком', () => {

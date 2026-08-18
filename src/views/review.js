@@ -9,6 +9,7 @@ import {
   review,
   stats,
   allowedGrades,
+  newCardBudget,
   GRADE,
   DIRECTION,
 } from '../core/srs.js';
@@ -49,7 +50,6 @@ import {
  */
 let q = null;
 
-const NEW_PER_SESSION = 8;
 
 export function startReview() {
   const state = loadState();
@@ -61,7 +61,14 @@ export function startReview() {
 
   const freshProd = shuffle(newProductionIds(unlocked)).map((w) => cardId(w, DIRECTION.PROD));
   const freshRec = shuffle(newRecognitionIds(unlocked)).map((w) => cardId(w, DIRECTION.REC));
-  const fresh = [...freshProd, ...freshRec].slice(0, NEW_PER_SESSION);
+  const candidates = [...freshProd, ...freshRec];
+
+  // Сколько нового потянуть сегодня, решает не константа, а размер долгов
+  const budget = newCardBudget({
+    dueCount: due.length,
+    dailyGoal: state.settings.dailyGoal,
+  });
+  const fresh = candidates.slice(0, budget);
 
   q = {
     queue: [...shuffle(due), ...fresh],
@@ -74,6 +81,9 @@ export function startReview() {
     done: 0,
     total: due.length + fresh.length,
     lockedOut: unlocked.length === 0,
+    // Придержанные слова — не «ничего не осталось»: об этом надо сказать прямо
+    heldBack: candidates.length - fresh.length,
+    crowdedOut: budget === 0 && candidates.length > 0,
   };
 }
 
@@ -85,27 +95,51 @@ export function exitReview() {
 
 function renderEmpty() {
   const s = stats(allVocabIds());
-  const done = q.done;
+  const { done, heldBack, crowdedOut, lockedOut } = q;
+
+  // «Нечего повторять» и «новое придержано» — разные вещи, и путать их нельзя:
+  // во втором случае работа есть, просто портал решил не наваливать всё сразу.
+  const held =
+    heldBack > 0
+      ? `<div class="callout mt-4" style="max-width:520px;margin-left:auto;margin-right:auto">
+          <span class="callout-label">Придержано</span>
+          ${
+            crowdedOut
+              ? `Просроченные повторения занимали всю дневную цель, поэтому новые слова
+                 сегодня не предлагались. Долг закрыт — теперь можно брать новые.`
+              : `Ещё ${plural(heldBack, 'слово ждёт', 'слова ждут', 'слов ждут')} очереди.
+                 Небольшими порциями каждый день память удерживает больше, чем одним рывком.`
+          }
+        </div>`
+      : '';
 
   return `
     <div class="empty">
-      <div class="empty-icon">${done > 0 ? '✨' : q.lockedOut ? '📘' : '👌'}</div>
-      <h1>${done > 0 ? 'На сегодня всё' : q.lockedOut ? 'Сначала урок' : 'Повторять пока нечего'}</h1>
+      <div class="empty-icon">${done > 0 ? '✨' : lockedOut ? '📘' : '👌'}</div>
+      <h1>${done > 0 ? 'На сегодня всё' : lockedOut ? 'Сначала урок' : 'Повторять пока нечего'}</h1>
       <p class="subtitle">
         ${
           done > 0
             ? `Повторено ${plural(done, 'карточка', 'карточки', 'карточек')}. Интервалы расставлены — возвращайся завтра.`
-            : q.lockedOut
+            : lockedOut
               ? 'Слова открываются пройденными уроками, чтобы тренажёр не подсовывал лексику без контекста.'
               : 'Все открытые слова повторены. Пройди следующий урок, чтобы добавить новые.'
         }
       </p>
-      <div class="grid grid-3" style="max-width:420px;margin:0 auto 24px">
+      ${held}
+      <div class="grid grid-3" style="max-width:420px;margin:24px auto">
         <div class="stat"><div class="stat-value">${s.learning}</div><div class="stat-label">в изучении</div></div>
         <div class="stat"><div class="stat-value" style="color:var(--green)">${s.mastered}</div><div class="stat-label">выучено</div></div>
         <div class="stat"><div class="stat-value">${s.untouched}</div><div class="stat-label">впереди</div></div>
       </div>
-      <button class="btn btn-primary btn-lg" data-nav="roadmap">К урокам</button>
+      <div class="row" style="justify-content:center">
+        ${
+          heldBack > 0
+            ? '<button class="btn btn-primary btn-lg" data-nav="review">Взять ещё слов</button>'
+            : ''
+        }
+        <button class="btn btn-lg" data-nav="roadmap">К урокам</button>
+      </div>
     </div>`;
 }
 

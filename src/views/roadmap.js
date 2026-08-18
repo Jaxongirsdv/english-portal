@@ -1,6 +1,37 @@
 import { loadState } from '../core/storage.js';
 import { CURRICULUM } from '../data/curriculum.js';
+import { reviewDebt } from '../core/analytics.js';
 import { esc, progressBar, plural } from '../core/ui.js';
+
+/** С какого отставания предупреждение перестаёт быть придиркой. */
+const DEBT_THRESHOLD = 15;
+
+/**
+ * Предупреждение о невыученном — ровно там, где выбирают следующий урок.
+ *
+ * Разбор прогресса про этот долг уже говорит, но он в другом разделе,
+ * а решение «пройти ещё урок» принимается здесь. Каждый новый урок
+ * добавляет слов в очередь, и если очередь и так не разбирается, урок
+ * не приближает к цели — он просто увеличивает то, что забудется.
+ *
+ * Предупреждение не запрещает: человек вправе идти дальше, просто
+ * теперь он видит цену.
+ */
+function debtCallout(state) {
+  const { waiting } = reviewDebt(state);
+  if (waiting < DEBT_THRESHOLD) return '';
+
+  return `
+    <div class="callout warn mb-4">
+      <span class="callout-label">Стоит разгрести</span>
+      ${plural(waiting, 'слово', 'слова', 'слов')} из пройденных уроков
+      ещё ни разу не повторялись. Новый урок добавит к ним ещё —
+      а без повторения они выветрятся, и время на урок уйдёт впустую.
+      <div class="mt-4">
+        <button class="btn btn-primary" data-nav="review">Повторять</button>
+      </div>
+    </div>`;
+}
 
 export function renderRoadmap() {
   const state = loadState();
@@ -8,6 +39,8 @@ export function renderRoadmap() {
   return `
     <h1>Дорожная карта</h1>
     <p class="subtitle">От нуля до Advanced. Уроки открываются по порядку — каждый следующий опирается на предыдущий.</p>
+
+    ${debtCallout(state)}
 
     ${CURRICULUM.map((level) => {
       const total = level.units.reduce((n, u) => n + u.lessons.length, 0);

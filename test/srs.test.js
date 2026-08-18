@@ -29,6 +29,8 @@ const {
   DIRECTION,
   PROD_UNLOCK_AFTER,
   allowedGrades,
+  newCardBudget,
+  MAX_NEW_PER_SESSION,
 } = await import('../src/core/srs.js');
 const { resetState, today, toISODate } = await import('../src/core/storage.js');
 const { VERDICT } = await import('../src/core/compare.js');
@@ -169,6 +171,45 @@ test('любая доступная после промаха оценка во�
       `оценка ${grade} после промаха не должна отодвигать повторение`,
     );
   }
+});
+
+/* ---------- Сколько нового брать за сессию ---------- */
+
+test('без долгов бюджет отталкивается от дневной цели', () => {
+  // Новое слово стоит примерно двух повторений знакомого, поэтому половина
+  assert.equal(newCardBudget({ dueCount: 0, dailyGoal: 20 }), 10);
+  assert.equal(newCardBudget({ dueCount: 0, dailyGoal: 10 }), 5);
+});
+
+test('чем больше просрочено, тем меньше нового', () => {
+  const goal = 20;
+  const budgets = [0, 5, 10, 15].map((dueCount) => newCardBudget({ dueCount, dailyGoal: goal }));
+
+  for (let i = 1; i < budgets.length; i++) {
+    assert.ok(budgets[i] <= budgets[i - 1], `бюджет не должен расти: ${budgets}`);
+  }
+  assert.ok(budgets[0] > budgets.at(-1), 'разница должна быть заметной');
+});
+
+test('когда просроченное съело дневную цель, новое не берётся вовсе', () => {
+  // Иначе получается костёр, который сам себя подливает: долг растёт,
+  // сессии удлиняются, человек бросает
+  assert.equal(newCardBudget({ dueCount: 20, dailyGoal: 20 }), 0);
+  assert.equal(newCardBudget({ dueCount: 100, dailyGoal: 20 }), 0);
+});
+
+test('бюджет не превышает потолка даже при огромной цели', () => {
+  assert.equal(newCardBudget({ dueCount: 0, dailyGoal: 500 }), MAX_NEW_PER_SESSION);
+});
+
+test('при крошечной цели всё же предлагается хотя бы одно слово', () => {
+  // Иначе цель «1 повторение в день» означала бы «никогда ничего нового»
+  assert.equal(newCardBudget({ dueCount: 0, dailyGoal: 1 }), 1);
+});
+
+test('бюджет не уходит в минус и переживает отсутствие настроек', () => {
+  assert.equal(newCardBudget({ dueCount: 999, dailyGoal: 20 }), 0);
+  assert.ok(newCardBudget() > 0, 'значения по умолчанию должны быть рабочими');
 });
 
 /* ---------- Две стороны карточки ---------- */
