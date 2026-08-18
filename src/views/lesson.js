@@ -3,6 +3,7 @@ import { getWord } from '../data/vocab.js';
 import { update, addXp, touchStudyDay } from '../core/storage.js';
 import { esc, speakBtn, shuffle, normalize, plural } from '../core/ui.js';
 import { speak } from '../core/speech.js';
+import { scoreAttempt, VERDICT } from '../core/compare.js';
 
 /**
  * Экран урока: теория → упражнения → результат.
@@ -20,6 +21,7 @@ export function startLesson(lessonId) {
     correct: 0,
     answered: false,
     wasRight: false,
+    verdict: null, // exact | close | wrong — только для перевода
     picked: null,
     chosen: [], // индексы выбранных слов в «собери предложение»
     typed: '',
@@ -121,8 +123,27 @@ function renderTheory() {
 
 /* ---------- Рендер упражнений ---------- */
 
+/**
+ * Разбор ответа. Опечатка выделена отдельно от ошибки: смысл усвоен,
+ * промахнулась рука. Считать её провалом значило бы занижать оценку
+ * урока — а по этой оценке разбор прогресса потом советует, к чему
+ * вернуться, и советовал бы неверно.
+ */
+function feedbackBlock(correctText) {
+  if (s.verdict === VERDICT.CLOSE) {
+    return `<div class="feedback ok" style="border-color:var(--amber);background:var(--amber-soft)">
+        <strong>Почти — опечатка.</strong>
+        Правильно пишется <strong>${esc(correctText)}</strong>.
+      </div>`;
+  }
+  return `<div class="feedback ${s.wasRight ? 'ok' : 'no'}">
+      <strong>${s.wasRight ? 'Верно! 🎉' : 'Не совсем.'}</strong>
+      ${s.wasRight ? '' : ` Правильный ответ: <strong>${esc(correctText)}</strong>`}
+    </div>`;
+}
+
 function renderExercise() {
-  const { lesson, idx, answered, wasRight, picked } = s;
+  const { lesson, idx, answered, picked } = s;
   const ex = lesson.exercises[idx];
 
   const dots = lesson.exercises
@@ -224,10 +245,7 @@ function renderExercise() {
 
       ${
         answered
-          ? `<div class="feedback ${wasRight ? 'ok' : 'no'}">
-              <strong>${wasRight ? 'Верно! 🎉' : 'Не совсем.'}</strong>
-              ${wasRight ? '' : ` Правильный ответ: <strong>${esc(correctText)}</strong>`}
-            </div>
+          ? `${feedbackBlock(correctText)}
             <button class="btn btn-primary btn-lg mt-4" data-lesson-action="next">
               ${idx + 1 < lesson.exercises.length ? 'Дальше →' : 'Завершить урок'}
             </button>`
@@ -278,14 +296,21 @@ function checkAnswer(value) {
   else if (ex.type === 'order') {
     const sentence = s.chosen.map((i) => s.shuffled[s.idx][i]).join(' ');
     right = normalize(sentence) === normalize(ex.answer);
-  } else if (ex.type === 'translate') right = normalize(s.typed) === normalize(ex.answer);
+  } else if (ex.type === 'translate') {
+    // Единственное упражнение со свободным вводом — значит единственное,
+    // где возможна опечатка. В остальных слова берутся из готовых вариантов,
+    // и «почти» там означало бы неверный выбор, а не промах пальцем.
+    s.verdict = scoreAttempt(ex.answer, [s.typed]).verdict;
+    right = s.verdict !== VERDICT.WRONG;
+  }
 
   s.answered = true;
   s.wasRight = right;
   s.picked = value;
   if (right) s.correct += 1;
 
-  addXp(right ? 10 : 3);
+  // Опечатка — между верным и неверным: смысл ты знаешь, написание пока нет
+  addXp(s.verdict === VERDICT.CLOSE ? 7 : right ? 10 : 3);
   touchStudyDay();
 
   // Озвучиваем правильный вариант — связка «звук ↔ смысл» закрепляется лучше.
@@ -305,20 +330,15 @@ export function handleLessonAction(action, el) {
       exitLesson();
       return 'roadmap';
 
-    case 'check': {
-      const ex = s.lesson.exercises[s.idx];
-      if (ex.type === 'translate') {
-        const input = document.querySelector('[data-typed]');
-        s.typed = input ? input.value : '';
-      }
+    case 'check':
       checkAnswer(null);
       return true;
-    }
 
     case 'next': {
       if (s.idx + 1 < s.lesson.exercises.length) {
         s.idx += 1;
         s.answered = false;
+        s.verdict = null;
         s.picked = null;
         s.chosen = [];
         s.typed = '';

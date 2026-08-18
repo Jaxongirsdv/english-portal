@@ -174,6 +174,10 @@ app.addEventListener('click', (e) => {
   // Урок
   const la = target('[data-lesson-action]');
   if (la) {
+    // Значение поля читает главный модуль: сам урок с DOM не работает,
+    // и его логику поэтому можно проверить тестами
+    const typedInput = document.querySelector('[data-typed]');
+    if (typedInput) Lesson.syncTyped(typedInput.value);
     const result = Lesson.handleLessonAction(la.dataset.lessonAction);
     if (typeof result === 'string') navigate(result);
     else if (result) render();
