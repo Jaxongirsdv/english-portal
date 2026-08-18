@@ -16,6 +16,7 @@ import {
   grammarCardId,
   isGrammarCard,
   grammarItemId,
+  getCard,
   GRADE,
   DIRECTION,
 } from '../core/srs.js';
@@ -23,6 +24,8 @@ import { loadState, update, addXp, touchStudyDay } from '../core/storage.js';
 import { esc, speakBtn, shuffle, plural, normalize } from '../core/ui.js';
 import { speak } from '../core/speech.js';
 import { scoreAttempt, VERDICT } from '../core/compare.js';
+import { translationChoices, wordBank } from '../core/choices.js';
+import { VOCAB } from '../data/vocab.js';
 import {
   isSupported as speechSupported,
   listen,
@@ -53,6 +56,12 @@ import {
  * Попытку можно сделать голосом или письменно — оба способа объективны,
  * оба требуют извлечь слово из памяти. Письменный доступен всегда:
  * распознаванию нужны интернет, микрофон и подходящий браузер.
+ *
+ * Формат вопроса зависит от того, насколько карточка знакома. Молодую
+ * спрашиваем мягче — выбором из вариантов, сборкой из готовых слов;
+ * окрепшую заставляем вспоминать целиком. Так нагрузка растёт по мере
+ * знакомства, а сессия перестаёт быть одним и тем же экраном двадцать
+ * раз подряд: однообразие утомляет быстрее, чем сложность.
  */
 let q = null;
 
@@ -82,7 +91,10 @@ export function startReview() {
     dueCount: due.length + dueGrammar.length,
     dailyGoal: state.settings.dailyGoal,
   });
-  const fresh = candidates.slice(0, budget);
+  // Отбор идёт по приоритету, а показ — вперемешку: иначе сессия шла бы
+  // блоками «четыре фразы подряд, потом десять слов подряд», и однообразие
+  // возвращалось бы внутри каждого блока
+  const fresh = shuffle(candidates.slice(0, budget));
 
   q = {
     queue: [...shuffle([...due, ...dueGrammar]), ...fresh],
@@ -91,6 +103,10 @@ export function startReview() {
     heard: '', // что услышал распознаватель либо что было набрано
     verdict: null, // exact | close | wrong; null — проверки не было
     spoken: false, // отвечали голосом или письменно — от этого зависит разбор
+    options: null, // варианты для узнавания
+    picked: null, // что выбрано
+    bank: null, // слова для сборки фразы
+    chosen: [], // индексы выбранных слов в банке
     status: 'idle', // idle | listening
     error: null, // сообщение распознавателя
     done: 0,
@@ -100,6 +116,7 @@ export function startReview() {
     heldBack: candidates.length - fresh.length,
     crowdedOut: budget === 0 && candidates.length > 0,
   };
+  ensurePrepared();
 }
 
 
@@ -158,6 +175,38 @@ function renderEmpty() {
     </div>`;
 }
 
+/** Молодая карточка — та, которую ещё не вспоминали дважды подряд. */
+const EASIER_UNTIL_REPS = 2;
+
+function isYoung(cardKey) {
+  return getCard(cardKey).reps < EASIER_UNTIL_REPS;
+}
+
+/**
+ * Готовит вопрос под текущую карточку — ровно один раз.
+ *
+ * Считать это в разметке нельзя: перерисовка происходит на каждый клик,
+ * и варианты тасовались бы прямо под пальцем, а собранные слова исчезали.
+ * Та же ошибка уже была в уроке с перемешанными вариантами.
+ */
+function ensurePrepared() {
+  if (!q || !q.queue.length) return;
+  const key = q.queue[0];
+
+  if (isGrammarCard(key)) {
+    const item = currentGrammar();
+    // Молодую фразу собираем из готовых слов: набирать целое предложение
+    // с телефона — работа, которая проверяет терпение, а не грамматику
+    if (item && q.bank === null && isYoung(key)) q.bank = wordBank(item.en);
+    return;
+  }
+
+  const { wordId, direction } = parseCardId(key);
+  if (direction !== DIRECTION.REC || q.options !== null) return;
+  const word = getWord(wordId);
+  if (word) q.options = translationChoices(word, VOCAB, 4);
+}
+
 /** Текущая фраза, если впереди очереди стоит карточка грамматики. */
 function currentGrammar() {
   if (!q || !q.queue.length || !isGrammarCard(q.queue[0])) return null;
@@ -194,7 +243,9 @@ function renderGrammar() {
     <div class="flashcard">
       <div class="flash-word" style="font-size:26px;color:var(--accent)">${esc(item.ru)}</div>
       <div class="flash-ipa">
-        напиши это по-английски${item.hint ? ` · подсказка: ${esc(item.hint)}` : ''}
+        ${q.bank ? 'собери фразу из слов' : 'напиши это по-английски'}${
+          item.hint ? ` · подсказка: ${esc(item.hint)}` : ''
+        }
       </div>
       ${
         q.revealed
@@ -211,6 +262,9 @@ function renderGrammar() {
 }
 
 function renderGrammarInput() {
+  // Молодая фраза собирается из готовых слов, окрепшая набирается целиком
+  if (q.bank) return renderGrammarBank();
+
   return `
     <input class="text-input" data-prod-input placeholder="Напиши предложение по-английски…"
            value="${esc(q.typed)}" autocomplete="off" autocapitalize="off"
@@ -221,9 +275,38 @@ function renderGrammarInput() {
     </div>`;
 }
 
+/**
+ * Сборка фразы из слов.
+ *
+ * chosen хранит индексы банка, а не сами слова: в предложении вроде
+ * «to be or not to be» одинаковые слова иначе удаляли бы друг друга.
+ */
+function renderGrammarBank() {
+  const chosenChips = q.chosen
+    .map((bankIdx, pos) => `<button class="chip" data-bank-undo="${pos}">${esc(q.bank[bankIdx])}</button>`)
+    .join('');
+
+  return `
+    <div class="answer-zone">
+      ${chosenChips || '<span class="faint">Нажимай на слова ниже…</span>'}
+    </div>
+    <div class="word-bank">
+      ${q.bank
+        .map((w, i) =>
+          q.chosen.includes(i) ? '' : `<button class="chip" data-bank-pick="${i}">${esc(w)}</button>`,
+        )
+        .join('')}
+    </div>
+    <div class="row mt-4">
+      <button class="btn btn-primary" data-prod-check>Проверить</button>
+      <button class="btn btn-ghost" data-prod-giveup>Не помню</button>
+    </div>`;
+}
+
 export function renderReview() {
   if (!q) startReview();
   if (q.queue.length === 0) return renderEmpty();
+  ensurePrepared();
   if (isGrammarCard(q.queue[0])) return renderGrammar();
 
   const { wordId, direction } = parseCardId(q.queue[0]);
@@ -274,23 +357,48 @@ export function renderReview() {
         q.revealed
           ? back
           : `<div class="dim" style="padding:14px 0">${
-              isProd ? 'Ответ откроется после попытки' : 'Вспомни перевод, затем открой карточку'
+              isProd ? 'Ответ откроется после попытки' : 'Вспомни перевод, потом выбери его ниже'
             }</div>`
       }
     </div>
 
-    ${isProd ? renderProdControls(w) : renderRecControls()}
+    ${isProd ? renderProdControls(w) : renderRecControls(w)}
   `;
 }
 
 /**
- * Узнавание: ответ открывается кнопкой, оценку ставит человек.
- * Здесь самооценка честна — понял смысл или нет, видно сразу.
+ * Узнавание: выбор перевода из четырёх.
+ *
+ * Раньше здесь была самооценка — «показать ответ» и четыре кнопки. Это
+ * оставалось последним местом, где цифра зависела от честности с собой:
+ * увидел перевод, решил «ну да, знал», интервал вырос. Выбор проверяет
+ * то же самое объективно, занимает один тап и не требует печати.
+ *
+ * Отвлекающие берутся из той же темы — иначе ответ угадывался бы
+ * по несовпадению области, а не по знанию слова.
  */
-function renderRecControls() {
-  return q.revealed
-    ? gradeRow([GRADE.AGAIN, GRADE.HARD, GRADE.GOOD, GRADE.EASY])
-    : '<button class="btn btn-primary btn-lg" style="width:100%" data-reveal>Показать ответ</button>';
+function renderRecControls(w) {
+  if (!q.revealed) {
+    return `<div class="choice-grid">
+      ${(q.options || [])
+        .map(
+          (opt) => `<button class="option" data-pick="${esc(opt)}">${esc(opt)}</button>`,
+        )
+        .join('')}
+    </div>`;
+  }
+
+  return `
+    <div class="choice-grid mb-4">
+      ${(q.options || [])
+        .map((opt) => {
+          const right = opt === w.ru;
+          const cls = right ? ' correct' : opt === q.picked ? ' wrong' : '';
+          return `<button class="option${cls}" disabled>${esc(opt)}</button>`;
+        })
+        .join('')}
+    </div>
+    ${gradeRow(allowedGrades(q.verdict))}`;
 }
 
 /**
@@ -419,6 +527,15 @@ const GRADE_BTN = {
 };
 
 function gradeRow(grades) {
+  if (grades.length === 1) {
+    const hint = {
+      [GRADE.AGAIN]: 'слово вернётся сегодня',
+      [GRADE.HARD]: 'повторим раньше обычного',
+    }[grades[0]];
+    return `<button class="btn btn-lg" style="width:100%" data-grade="${grades[0]}">
+        Дальше<small style="display:block;opacity:.6;font-weight:400">${hint}</small>
+      </button>`;
+  }
   return `<div class="grade-row" style="grid-template-columns:repeat(${grades.length},1fr)">
     ${grades
       .map((g) => {
@@ -466,13 +583,45 @@ export function syncTyped(value) {
 }
 
 /**
- * Открыть ответ без проверки можно только на узнавании.
- * Там, где ответ надо воспроизвести, это была бы та самая лазейка.
+ * Выбор перевода на карточке узнавания.
+ *
+ * Кнопки «показать ответ» больше нет вовсе: она позволяла увидеть перевод
+ * и самому решить, знал ли ты его. Теперь ответ определяется выбором,
+ * и решает не память о собственной уверенности, а совпадение.
  */
-export function handleReveal() {
+export function handlePick(value) {
   if (!q || !q.queue.length || q.revealed) return false;
-  if (expectedAnswer() !== null) return false;
-  return reveal(null);
+  if (isGrammarCard(q.queue[0]) || currentDirection() !== DIRECTION.REC) return false;
+
+  const w = getWord(parseCardId(q.queue[0]).wordId);
+  if (!w || !q.options?.includes(value)) return false;
+
+  q.picked = value;
+  return reveal(value === w.ru ? VERDICT.EXACT : VERDICT.WRONG, value);
+}
+
+/** Слово из банка отправляется в собираемую фразу. */
+export function handleBankPick(index) {
+  const i = Number(index);
+  if (!q || q.revealed || !q.bank || q.chosen.includes(i)) return false;
+  if (!Number.isInteger(i) || i < 0 || i >= q.bank.length) return false;
+  q.chosen = [...q.chosen, i];
+  return true;
+}
+
+/** Взятое по ошибке слово возвращается в банк. */
+export function handleBankUndo(position) {
+  const p = Number(position);
+  if (!q || q.revealed || !q.bank) return false;
+  if (!Number.isInteger(p) || p < 0 || p >= q.chosen.length) return false;
+  q.chosen = q.chosen.filter((_, idx) => idx !== p);
+  return true;
+}
+
+/** Что человек в итоге ответил: набранное или собранное из банка. */
+function currentAnswerText() {
+  if (q.bank) return q.chosen.map((i) => q.bank[i]).join(' ');
+  return q.typed;
 }
 
 export function handleCheck() {
@@ -480,14 +629,15 @@ export function handleCheck() {
   const expected = expectedAnswer();
   if (expected === null) return false;
 
-  // Пустое поле — не ответ: засчитать его ошибкой значило бы наказать
+  // Пустой ответ — не ответ: засчитать его ошибкой значило бы наказать
   // за случайный клик, а верным — открыть дыру шире прежней.
-  if (!normalize(q.typed)) return false;
+  const answer = currentAnswerText();
+  if (!normalize(answer)) return false;
 
   // Тот же разбор, что и для речи: опечатка — это «почти», а не провал,
   // но порог зависит от длины образца, иначе tree сошло бы за three
-  const { verdict } = scoreAttempt(expected, [q.typed]);
-  return reveal(verdict, q.typed.trim());
+  const { verdict } = scoreAttempt(expected, [answer]);
+  return reveal(verdict, answer.trim());
 }
 
 export async function handleSpeak(rerender) {
@@ -542,11 +692,19 @@ export function handleGrade(grade) {
   q.verdict = null;
   q.heard = '';
   q.spoken = false;
+  q.options = null;
+  q.picked = null;
+  q.bank = null;
+  q.chosen = [];
   q.typed = '';
   q.error = null;
   q.status = 'idle';
   q.done += 1;
   addXp(g >= 3 ? 5 : 1);
   touchStudyDay();
+  // Готовим следующую карточку сразу: полагаться на то, что первой
+  // случится отрисовка, — значит держать обработчики в зависимости
+  // от порядка вызовов
+  ensurePrepared();
   return true;
 }

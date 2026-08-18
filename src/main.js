@@ -200,8 +200,19 @@ app.addEventListener('click', (e) => {
   }
 
   // Повторение
-  if (target('[data-reveal]')) {
-    if (Review.handleReveal()) render();
+  const pick = target('[data-pick]');
+  if (pick) {
+    if (Review.handlePick(pick.dataset.pick)) render();
+    return;
+  }
+  const bankPick = target('[data-bank-pick]');
+  if (bankPick) {
+    if (Review.handleBankPick(bankPick.dataset.bankPick)) render();
+    return;
+  }
+  const bankUndo = target('[data-bank-undo]');
+  if (bankUndo) {
+    if (Review.handleBankUndo(bankUndo.dataset.bankUndo)) render();
     return;
   }
   if (target('[data-prod-check]')) {

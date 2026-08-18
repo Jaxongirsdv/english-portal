@@ -23,7 +23,7 @@ globalThis.localStorage = {
 
 const { resetState, update, loadState, today } = await import('../src/core/storage.js');
 const { allLessons, unlockedVocabIds } = await import('../src/data/curriculum.js');
-const { allGrammarItems } = await import('../src/data/grammar.js');
+const { allGrammarItems, unlockedGrammarIds } = await import('../src/data/grammar.js');
 const { getWord } = await import('../src/data/vocab.js');
 const { cardId, getCard, grammarCardId, GRADE, DIRECTION } = await import('../src/core/srs.js');
 const Review = await import('../src/views/review.js');
@@ -105,11 +105,12 @@ test('лицевая сторона воспроизведения не соде
   assert.ok(html.includes('data-prod-input'), 'вместо этого — поле для ввода');
 });
 
-test('«показать ответ» на воспроизведении не срабатывает', () => {
+test('на воспроизведении нечем открыть ответ без попытки', () => {
   const { word } = prodSession();
+  const html = Review.renderReview();
 
-  assert.equal(Review.handleReveal(), false, 'обойти попытку нельзя');
-  assert.ok(!Review.renderReview().includes(word.en), 'ответ так и не показан');
+  assert.ok(!html.includes('data-reveal'), 'кнопки «показать ответ» не должно существовать');
+  assert.ok(!html.includes(word.en), 'ответ не показан');
 });
 
 test('без проверки оценку поставить нельзя', () => {
@@ -271,16 +272,54 @@ function budgetSession({ goal, overdue = 0 }) {
     for (const wid of lessonWords.slice(0, overdue)) {
       s.cards[cardId(wid, DIRECTION.REC)] = card({ due: today() });
     }
+    // Фразы урока убираем с глаз: здесь проверяется порция слов,
+    // и грамматика только зашумила бы очередь
+    for (const gid of unlockedGrammarIds(s.lessons)) {
+      s.cards[grammarCardId(gid)] = card();
+    }
   });
   Review.startReview();
 }
 
-/** Проходит всю очередь, отвечая «помню» на узнавание. */
+const unesc = (s) =>
+  s.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+
+/** Английское слово с лицевой стороны карточки узнавания. */
+function frontWord(html) {
+  return unesc(html.match(/class="flash-word"[^>]*>([^<]*)/)?.[1] ?? '').trim();
+}
+
+/** Верный вариант виден в разметке после ответа — по подсветке. */
+function correctOption(html) {
+  return unesc(html.match(/class="option correct"[^>]*>([^<]*)</)?.[1] ?? '').trim();
+}
+
+/**
+ * Проходит всю очередь до конца.
+ *
+ * Верный перевод заранее неизвестен, поэтому помощник ведёт себя как ученик:
+ * ошибается на новом слове, запоминает подсвеченный ответ и в следующий раз
+ * отвечает верно. Без этого ошибочные карточки возвращались бы бесконечно.
+ */
 function clearQueue() {
-  for (let guard = 0; guard < 200; guard++) {
-    if (Review.renderReview().includes('empty-icon')) return;
-    assert.ok(Review.handleReveal(), 'в этих сессиях бывают только карточки узнавания');
-    Review.handleGrade(GRADE.GOOD);
+  const learned = new Map();
+
+  for (let guard = 0; guard < 300; guard++) {
+    let html = Review.renderReview();
+    if (html.includes('empty-icon')) return;
+
+    const options = [...html.matchAll(/data-pick="([^"]*)"/g)].map((m) => unesc(m[1]));
+    assert.ok(options.length, 'в этих сессиях бывают только карточки узнавания');
+
+    const word = frontWord(html);
+    const known = learned.get(word);
+    assert.ok(Review.handlePick(known ?? options[0]));
+
+    html = Review.renderReview();
+    learned.set(word, correctOption(html));
+    // Оценку выбираем по тому, что предлагает экран: угадать можно
+    // и с первого раза, и тогда «не помню» просто не примут
+    Review.handleGrade(html.includes(`data-grade="${GRADE.GOOD}"`) ? GRADE.GOOD : GRADE.AGAIN);
   }
   assert.fail('очередь не кончилась — похоже, карточки возвращаются бесконечно');
 }
@@ -337,7 +376,7 @@ test('новая сессия после разгребённого долга �
  * Урок берём ровно с одной фразой: несколько фраз перемешиваются, и тест
  * проверял бы случайную из них — ошибка, на которой он уже спотыкался.
  */
-function grammarSession() {
+function grammarSession({ reps = 0 } = {}) {
   const perLesson = {};
   for (const it of allGrammarItems()) (perLesson[it.lessonId] ||= []).push(it);
   const only = Object.values(perLesson).find((list) => list.length === 1 && list[0].en.length >= 10);
@@ -352,31 +391,77 @@ function grammarSession() {
     for (const wid of unlockedVocabIds(s.lessons)) {
       s.cards[cardId(wid, DIRECTION.REC)] = card();
     }
+    // Зрелость фразы решает, собирать её из слов или набирать
+    if (reps) s.cards[grammarCardId(item.id)] = card({ reps, due: today() });
   });
   Review.startReview();
   return item;
 }
 
-test('фраза спрашивается по-русски и без готового ответа', () => {
+test('новая фраза собирается из слов, а не набирается', () => {
   const item = grammarSession();
   const html = Review.renderReview();
 
   assert.ok(html.includes('построй фразу'), 'карточка фразы, а не слова');
   assert.ok(html.includes(item.ru), 'русская сторона на месте');
-  assert.ok(!html.includes(item.en), 'английская — нет');
-  assert.ok(html.includes('data-prod-input'), 'отвечать надо письменно');
+  assert.ok(!html.includes(item.en), 'готового ответа нет');
+
+  const bank = [...html.matchAll(/data-bank-pick="(\d+)"/g)];
+  assert.equal(bank.length, item.en.split(' ').length, 'в банке ровно слова ответа');
+  assert.ok(!html.includes('data-prod-input'), 'печатать целое предложение не нужно');
+});
+
+test('собранная фраза проверяется по порядку слов', () => {
+  const item = grammarSession();
+  const words = item.en.split(' ');
+
+  // Собираем в правильном порядке, находя каждое слово в перемешанном банке
+  const used = new Set();
+  for (const word of words) {
+    const html = Review.renderReview();
+    const chip = [...html.matchAll(/data-bank-pick="(\d+)"[^>]*>([^<]*)</g)]
+      .map((m) => ({ i: m[1], w: m[2].trim() }))
+      .find((c) => c.w === word && !used.has(c.i));
+    assert.ok(chip, `слова «${word}» нет в банке`);
+    used.add(chip.i);
+    assert.ok(Review.handleBankPick(chip.i));
+  }
+
+  assert.equal(Review.handleCheck(), true);
+  assert.ok(Review.renderReview().includes('Верно'), 'порядок собран верно');
+  assert.equal(Review.handleGrade(GRADE.GOOD), true);
+});
+
+test('слово из банка можно вернуть назад', () => {
+  grammarSession();
+  assert.ok(Review.handleBankPick(0));
+  assert.ok(Review.renderReview().includes('data-bank-undo="0"'), 'взятое слово видно в ответе');
+
+  assert.ok(Review.handleBankUndo(0));
+  assert.ok(!Review.renderReview().includes('data-bank-undo'), 'и его можно снять');
+  assert.equal(Review.handleCheck(), false, 'пустой ответ не проверяется');
+});
+
+test('окрепшую фразу уже приходится набирать целиком', () => {
+  const item = grammarSession({ reps: 3 });
+  const html = Review.renderReview();
+
+  assert.ok(html.includes('data-prod-input'), 'банка слов больше нет');
+  assert.ok(!html.includes('data-bank-pick'), 'подсказку убрали — спрос выше');
+  assert.ok(!html.includes(item.en));
 });
 
 test('ответ на фразу нельзя открыть даром', () => {
   const item = grammarSession();
+  const html = Review.renderReview();
 
-  assert.equal(Review.handleReveal(), false, 'иначе вернулась бы прежняя лазейка');
-  assert.equal(Review.handleGrade(GRADE.GOOD), false, 'и оценка без попытки тоже');
-  assert.ok(!Review.renderReview().includes(item.en));
+  assert.ok(!html.includes('data-reveal'), 'открывать ответ нечем');
+  assert.equal(Review.handleGrade(GRADE.GOOD), false, 'и оценка без попытки невозможна');
+  assert.ok(!html.includes(item.en));
 });
 
-test('верно построенная фраза засчитывается', () => {
-  const item = grammarSession();
+test('верно набранная фраза засчитывается', () => {
+  const item = grammarSession({ reps: 3 }); // окрепшую набирают целиком
   Review.syncTyped(item.en.toUpperCase() + '!');
 
   assert.equal(Review.handleCheck(), true);
@@ -386,7 +471,7 @@ test('верно построенная фраза засчитывается', 
 });
 
 test('опечатка во фразе остаётся опечаткой', () => {
-  const item = grammarSession();
+  const item = grammarSession({ reps: 3 });
   Review.syncTyped(item.en.slice(0, -1));
   Review.handleCheck();
 
@@ -396,7 +481,7 @@ test('опечатка во фразе остаётся опечаткой', () 
 });
 
 test('перепутанный порядок слов — это ошибка, а не опечатка', () => {
-  const item = grammarSession();
+  const item = grammarSession({ reps: 3 });
   Review.syncTyped(item.en.split(' ').reverse().join(' '));
   Review.handleCheck();
 
@@ -414,14 +499,14 @@ test('на фразу не отвечают голосом', async () => {
 
   const html = Review.renderReview();
   assert.ok(!html.includes('data-prod-speak'), 'кнопки записи на фразе быть не должно');
-  assert.ok(html.includes('data-prod-input'), 'только письменно');
+  assert.ok(!html.includes('data-prod-mode'), 'и переключателя способа ответа тоже');
 
   await Review.handleSpeak(() => {});
   assert.ok(!Review.renderReview().includes('Верно'), 'запись не должна ничего засчитать');
 });
 
 test('«не помню» на фразе открывает ответ, но не зачитывает', () => {
-  const item = grammarSession();
+  const item = grammarSession({ reps: 3 });
 
   assert.equal(Review.handleGiveUp(), true);
   assert.ok(Review.renderReview().includes(item.en));
@@ -430,16 +515,36 @@ test('«не помню» на фразе открывает ответ, но н
 
 /* ---------- Узнавание работает по-прежнему ---------- */
 
-test('на узнавании самооценка сохраняется целиком', () => {
+test('узнавание проверяется выбором, а не доверием к себе', () => {
   recSession();
+  const html = Review.renderReview();
+
+  assert.ok(!html.includes('data-reveal'), 'самооценка убрана вместе с кнопкой');
+  const options = [...html.matchAll(/data-pick="([^"]*)"/g)].map((m) => unesc(m[1]));
+  assert.equal(options.length, 4, 'четыре варианта');
+  assert.equal(new Set(options).size, 4, 'и все разные');
 
   assert.equal(Review.handleCheck(), false, 'ввод здесь ни при чём');
   assert.equal(Review.handleGiveUp(), false);
-  assert.equal(Review.handleReveal(), true);
+  assert.equal(Review.handleGrade(GRADE.GOOD), false, 'без ответа оценки нет');
+});
 
+test('неверный выбор не даёт зачесть слово', () => {
+  recSession();
   const html = Review.renderReview();
-  for (const g of [GRADE.AGAIN, GRADE.HARD, GRADE.GOOD, GRADE.EASY]) {
-    assert.ok(html.includes(`data-grade="${g}"`), `оценка ${g} доступна`);
+  const options = [...html.matchAll(/data-pick="([^"]*)"/g)].map((m) => unesc(m[1]));
+  const right = getWord(frontWord(html).replace(/\s.*$/, '')) ?? null;
+
+  // Берём заведомо чужой вариант: верный подсветится после ответа
+  assert.ok(Review.handlePick(options[0]));
+  const after = Review.renderReview();
+  const correct = correctOption(after);
+
+  if (options[0] === correct) {
+    assert.equal(Review.handleGrade(GRADE.GOOD), true, 'верный выбор оценивается как обычно');
+  } else {
+    assert.equal(Review.handleGrade(GRADE.GOOD), false, '«помню» после промаха невозможно');
+    assert.equal(Review.handleGrade(GRADE.AGAIN), true);
   }
-  assert.equal(Review.handleGrade(GRADE.GOOD), true);
+  assert.ok(right !== undefined);
 });

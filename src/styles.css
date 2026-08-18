@@ -385,6 +385,11 @@ table.theory tr:last-child td { border-bottom: none; }
 }
 .option:hover:not(:disabled) { border-color: var(--accent); background: var(--bg-elev-2); }
 .option.correct { border-color: var(--green); background: var(--green-soft); }
+/* Варианты ответа в повторении: в две колонки, чтобы попадать пальцем */
+.choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.choice-grid .option { margin-bottom: 0; }
+@media (max-width: 520px) { .choice-grid { grid-template-columns: 1fr; } }
+
 .option.wrong { border-color: var(--red); background: var(--red-soft); }
 .option:disabled { cursor: default; }
 
