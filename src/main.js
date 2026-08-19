@@ -272,12 +272,14 @@ app.addEventListener('click', (e) => {
   }
 
   // Аудирование
+  // Перерисовываем: счётчик прослушиваний и доступность кнопок зависят
+  // от того, слушал ли человек, — без этого экран остаётся врать
   if (target('[data-listen-play]') || target('[data-listen-replay]')) {
-    Listening.playCurrent(false);
+    if (Listening.playCurrent(false)) render();
     return;
   }
   if (target('[data-listen-slow]')) {
-    Listening.playCurrent(true);
+    if (Listening.playCurrent(true)) render();
     return;
   }
   if (target('[data-listen-check]')) {
@@ -288,6 +290,41 @@ app.addEventListener('click', (e) => {
   }
   if (target('[data-listen-next]')) {
     if (Listening.handleNext()) render();
+    return;
+  }
+  const listenMode = target('[data-listen-mode]');
+  if (listenMode) {
+    if (Listening.setMode(listenMode.dataset.listenMode)) render();
+    return;
+  }
+  const audioText = target('[data-audio-text]');
+  if (audioText) {
+    if (Listening.openAudioText(audioText.dataset.audioText)) render();
+    return;
+  }
+  if (target('[data-listen-textback]')) {
+    if (Listening.backToTextList()) render();
+    return;
+  }
+  if (target('[data-audio-play]')) {
+    if (Listening.playAudioText(false)) render();
+    return;
+  }
+  if (target('[data-audio-slow]')) {
+    if (Listening.playAudioText(true)) render();
+    return;
+  }
+  if (target('[data-audio-quiz]')) {
+    if (Listening.startAudioQuestions()) render();
+    return;
+  }
+  const audioAnswer = target('[data-audio-answer]');
+  if (audioAnswer) {
+    if (Listening.answerAudioQuestion(audioAnswer.dataset.audioAnswer)) render();
+    return;
+  }
+  if (target('[data-audio-next]')) {
+    if (Listening.nextAudioQuestion()) render();
     return;
   }
 

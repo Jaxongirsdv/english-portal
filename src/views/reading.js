@@ -1,7 +1,17 @@
 import { loadState, update, addXp, touchStudyDay } from '../core/storage.js';
 import { textsFor, getText, plainText, wordCount } from '../data/reading.js';
 import { speak } from '../core/speech.js';
-import { esc, progressBar, plural, shuffle } from '../core/ui.js';
+import { esc, progressBar, plural } from '../core/ui.js';
+import {
+  createQuiz,
+  currentQuestion,
+  currentOptions,
+  answerQuestion as answerQuiz,
+  isCorrect,
+  nextQuestion as advanceQuiz,
+  quizScore,
+  quizProgress,
+} from '../core/quiz.js';
 
 /**
  * Экран чтения.
@@ -16,7 +26,7 @@ import { esc, progressBar, plural, shuffle } from '../core/ui.js';
 let s = null;
 
 export function startReading() {
-  s = s?.text ? s : { text: null, phase: 'list', order: [], options: [], idx: 0, answers: [], picked: null };
+  s = s?.text ? s : { text: null, phase: 'list', quiz: null };
 }
 
 export function exitReading() {
@@ -30,25 +40,12 @@ function level() {
 export function openText(id) {
   const text = getText(id);
   if (!text) return false;
-  s = {
-    text,
-    phase: 'read',
-    // Порядок вопросов перемешиваем при каждом заходе: со второго раза
-    // иначе запоминается позиция, а не содержание
-    order: shuffle(text.questions.map((_, i) => i)),
-    // Варианты — тоже, и это важнее. В данных верный ответ записан первым;
-    // без перемешивания текст можно «понять» на сто процентов, ни разу
-    // не заглянув в него, — достаточно всегда жать верхнюю кнопку.
-    options: text.questions.map((q) => shuffle(q.options)),
-    idx: 0,
-    answers: [],
-    picked: null,
-  };
+  s = { text, phase: 'read', quiz: createQuiz(text.questions) };
   return true;
 }
 
 export function backToList() {
-  s = { text: null, phase: 'list', order: [], options: [], idx: 0, answers: [], picked: null };
+  s = { text: null, phase: 'list', quiz: null };
   return true;
 }
 
@@ -63,24 +60,17 @@ export function speakText() {
 }
 
 export function answerQuestion(value) {
-  if (!s || s.phase !== 'quiz' || s.picked !== null) return false;
-  const q = s.text.questions[s.order[s.idx]];
-  s.picked = value;
-  s.answers.push(value === q.answer);
-  return true;
+  if (!s || s.phase !== 'quiz') return false;
+  return answerQuiz(s.quiz, s.text.questions, value);
 }
 
 export function nextQuestion() {
-  if (!s || s.phase !== 'quiz' || s.picked === null) return false;
-  s.picked = null;
+  if (!s || s.phase !== 'quiz') return false;
+  const { moved, finished } = advanceQuiz(s.quiz);
+  if (!moved) return false;
+  if (!finished) return true;
 
-  if (s.idx + 1 < s.order.length) {
-    s.idx += 1;
-    return true;
-  }
-
-  const right = s.answers.filter(Boolean).length;
-  const score = Math.round((right / s.answers.length) * 100);
+  const { right, percent } = quizScore(s.quiz);
   s.phase = 'done';
 
   update((st) => {
@@ -89,7 +79,7 @@ export function nextQuestion() {
     // из-за спешки — не повод стирать прежнее понимание
     st.reading = {
       ...(st.reading || {}),
-      [s.text.id]: { score: Math.max(score, before?.score ?? 0), at: new Date().toISOString() },
+      [s.text.id]: { score: Math.max(percent, before?.score ?? 0), at: new Date().toISOString() },
     };
   });
   addXp(right * 3);
@@ -178,36 +168,34 @@ function renderRead() {
 }
 
 function renderQuiz() {
-  const t = s.text;
-  const qIndex = s.order[s.idx];
-  const q = t.questions[qIndex];
-  const options = s.options[qIndex];
-  const answered = s.picked !== null;
+  const q = currentQuestion(s.quiz, s.text.questions);
+  const answered = s.quiz.picked !== null;
+  const right = isCorrect(s.quiz, s.text.questions);
 
   return `
     <div class="row-between mb-4">
       <button class="btn btn-ghost" data-reading-back>← К текстам</button>
-      <span class="faint">Вопрос ${s.idx + 1} из ${s.order.length}</span>
+      <span class="faint">Вопрос ${s.quiz.idx + 1} из ${s.quiz.order.length}</span>
     </div>
-    ${progressBar((s.idx / s.order.length) * 100)}
+    ${progressBar(quizProgress(s.quiz))}
 
     <div class="exercise mt-4">
       <div class="ex-prompt">${esc(q.q)}</div>
-      ${options
+      ${currentOptions(s.quiz)
         .map((o) => {
-          const cls = !answered ? '' : o === q.answer ? ' correct' : o === s.picked ? ' wrong' : '';
+          const cls = !answered ? '' : o === q.answer ? ' correct' : o === s.quiz.picked ? ' wrong' : '';
           return `<button class="option${cls}" ${answered ? 'disabled' : ''} data-reading-answer="${esc(o)}">${esc(o)}</button>`;
         })
         .join('')}
 
       ${
         answered
-          ? `<div class="feedback ${s.picked === q.answer ? 'ok' : 'no'}">
-              <strong>${s.picked === q.answer ? 'Верно.' : 'Не то.'}</strong>
-              ${s.picked === q.answer ? '' : ` В тексте: <strong>${esc(q.answer)}</strong>`}
+          ? `<div class="feedback ${right ? 'ok' : 'no'}">
+              <strong>${right ? 'Верно.' : 'Не то.'}</strong>
+              ${right ? '' : ` В тексте: <strong>${esc(q.answer)}</strong>`}
             </div>
             <button class="btn btn-primary btn-lg mt-4" data-reading-next>
-              ${s.idx + 1 < s.order.length ? 'Дальше →' : 'Итог'}
+              ${s.quiz.idx + 1 < s.quiz.order.length ? 'Дальше →' : 'Итог'}
             </button>`
           : ''
       }
@@ -215,18 +203,16 @@ function renderQuiz() {
 }
 
 function renderDone() {
-  const right = s.answers.filter(Boolean).length;
-  const total = s.answers.length;
-  const pct = Math.round((right / total) * 100);
+  const { right, total, percent } = quizScore(s.quiz);
 
   return `
     <div class="empty">
-      <div class="empty-icon">${pct >= 80 ? '🎉' : pct >= 50 ? '👍' : '💪'}</div>
+      <div class="empty-icon">${percent >= 80 ? '🎉' : percent >= 50 ? '👍' : '💪'}</div>
       <h1>${esc(s.text.title)}</h1>
-      <p class="subtitle">${right} из ${total} верно · ${pct}%</p>
+      <p class="subtitle">${right} из ${total} верно · ${percent}%</p>
       <p class="faint" style="max-width:460px;margin:0 auto 24px">
         ${
-          pct >= 80
+          percent >= 80
             ? 'Текст понят. Слова из него встретятся в повторениях — там они закрепятся окончательно.'
             : 'Стоит перечитать: понимание текста складывается со второго раза чаще, чем с первого.'
         }
