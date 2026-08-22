@@ -1,0 +1,11 @@
+node_modules/
+dist/
+
+# Иконки генерируются сборкой
+public/icon-192.png
+public/icon-512.png
+
+# Личное
+*.local
+.DS_Store
+english-portal-backup-*.json

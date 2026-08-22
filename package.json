@@ -1,0 +1,22 @@
+{
+  "name": "english-portal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Личный портал для изучения английского с нуля до Advanced",
+  "scripts": {
+    "dev": "vite",
+    "icons": "node scripts/make-icons.mjs",
+    "build": "node scripts/make-icons.mjs && vite build",
+    "preview": "vite preview --port 4173",
+    "start": "npm run build && vite preview --port 4173",
+    "preview:pages": "vite preview --base /english-portal/ --port 4174",
+    "test": "node --test test/srs.test.js test/content.test.js test/compare.test.js test/diff.test.js test/merge.test.js test/storage.test.js test/autosync.test.js test/sync.test.js test/ai.test.js test/ui.test.js test/analytics.test.js test/review.test.js test/lesson.test.js test/grammar.test.js test/choices.test.js test/dialogue.test.js test/reading.test.js test/quiz.test.js test/navigation.test.js"
+  },
+  "devDependencies": {
+    "vite": "^7.1.5"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1"
+  }
+}

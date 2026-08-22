@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "english-portal",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "english-portal-prod",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start"],
+      "port": 4173
+    },
+    {
+      "name": "english-portal-pages",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "preview", "--base", "/english-portal/", "--port", "4174"],
+      "port": 4174
+    }
+  ]
+}
