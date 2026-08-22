@@ -8,7 +8,7 @@ import { initAutoSync, syncStatus, isEnabled as autoSyncEnabled } from './core/a
 
 import { setFilter, setQuery } from './views/vocab.js';
 import { esc } from './core/ui.js';
-import { NAV, parseRoute } from './core/navigation.js';
+import { NAV, parseRoute, primarySection, sectionTabs } from './core/navigation.js';
 import { renderRoute } from './core/render-route.js';
 import {
   handleSettingChange,
@@ -95,13 +95,15 @@ function render() {
   const state = loadState();
   document.documentElement.dataset.theme = state.settings.theme === 'dark' ? 'dark' : 'light';
   const due = dueCardIds(allVocabIds()).length;
+  const activeSection = primarySection(route.name);
+  const tabs = sectionTabs(route.name);
 
   app.innerHTML = `
     <div class="app">
       <aside class="sidebar">
         <div class="logo">English<span>Portal</span></div>
         ${NAV.map(
-          (n) => `<button class="nav-item${route.name === n.id ? ' active' : ''}" data-nav="${n.id}">
+          (n) => `<button class="nav-item${activeSection === n.id ? ' active' : ''}" data-nav="${n.id}">
             <span>${n.icon}</span><span>${n.label}</span>
             ${n.id === 'review' && due ? `<span class="badge">${due}</span>` : ''}
           </button>`,
@@ -110,9 +112,16 @@ function render() {
           🔥 ${state.streak} дн. подряд<br />
           ⭐ ${state.xp} XP
           ${autoSyncEnabled() ? `<br />${syncBadge()}` : ''}
+          <button class="settings-link" data-nav="settings" aria-label="Открыть настройки">⚙ Настройки</button>
         </div>
       </aside>
-      <main class="main">${renderRoute(route)}</main>
+      <main class="main">
+        ${tabs.length ? `<nav class="section-tabs" aria-label="Раздел">
+          ${tabs.map((tab) => `<button class="section-tab${route.name === tab.id ? ' active' : ''}" data-nav="${tab.id}">${tab.label}</button>`).join('')}
+        </nav>` : ''}
+        ${route.name === 'settings' ? '<button class="back-link" data-nav="progress">← К прогрессу</button>' : ''}
+        ${renderRoute(route)}
+      </main>
     </div>
   `;
 

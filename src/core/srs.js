@@ -26,6 +26,7 @@ function newCard(id) {
     reps: 0, // сколько успешных повторов подряд
     lapses: 0, // сколько раз забывал
     lastLapseAt: null, // последняя актуальная ошибка для короткого разбора
+    lastReviewAt: null, // точное время попытки для корректной синхронизации
     due: today(), // дата следующего показа
   };
 }
@@ -47,6 +48,7 @@ function addDays(dateStr, days) {
  */
 export function review(id, grade) {
   const card = { ...getCard(id) };
+  card.lastReviewAt = new Date().toISOString();
 
   if (grade < 3) {
     // Забыл — начинаем цикл заново, но лёгкость слегка падает.

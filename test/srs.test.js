@@ -75,6 +75,7 @@ test('забытое слово сбрасывает цикл и снижает 
   assert.equal(c.interval, 0);
   assert.equal(c.lapses, 1);
   assert.equal(c.lastLapseAt, today(), 'ошибка помечается датой для отдельного разбора');
+  assert.match(c.lastReviewAt, /^\d{4}-\d{2}-\d{2}T/, 'попытка получает точное время для синхронизации');
   assert.ok(c.ease < before, 'лёгкость падает');
   assert.equal(c.due, today(), 'слово возвращается в эту же сессию');
 });
@@ -86,6 +87,7 @@ test('успешный повтор убирает актуальную ошиб
 
   assert.equal(c.lapses, 1);
   assert.equal(c.lastLapseAt, null);
+  assert.match(c.lastReviewAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test('лёгкость не опускается ниже 1.3', () => {

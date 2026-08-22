@@ -85,6 +85,29 @@ test('по слову побеждает более продвинутая ка�
   assert.equal(mergeState(remote, local, TODAY).cards.w.reps, 4, 'результат не зависит от порядка');
 });
 
+test('свежий успешный ответ снимает ошибку после синхронизации', () => {
+  const local = baseState({
+    cards: {
+      w: {
+        id: 'w', reps: 1, interval: 1, ease: 2.5, due: '2026-08-17', lapses: 1,
+        lastLapseAt: null, lastReviewAt: '2026-08-16T11:00:00.000Z',
+      },
+    },
+  });
+  const remote = baseState({
+    cards: {
+      w: {
+        id: 'w', reps: 0, interval: 0, ease: 2.3, due: '2026-08-16', lapses: 1,
+        lastLapseAt: '2026-08-16', lastReviewAt: '2026-08-16T10:00:00.000Z',
+      },
+    },
+  });
+
+  const merged = mergeState(local, remote, TODAY).cards.w;
+  assert.equal(merged.lastLapseAt, null);
+  assert.equal(merged.lastReviewAt, '2026-08-16T11:00:00.000Z');
+});
+
 test('карточка, которой нет на втором устройстве, сохраняется', () => {
   const local = baseState({ cards: { only: { id: 'only', reps: 2, interval: 6, ease: 2.5, due: '2026-08-22', lapses: 0 } } });
   const merged = mergeState(local, baseState(), TODAY);

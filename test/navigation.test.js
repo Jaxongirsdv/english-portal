@@ -1,14 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { NAV, parseRoute } from '../src/core/navigation.js';
+import { NAV, parseRoute, primarySection, sectionTabs } from '../src/core/navigation.js';
 
 test('навигация содержит уникальные идентификаторы экранов', () => {
   const ids = NAV.map((item) => item.id);
 
   assert.equal(new Set(ids).size, ids.length);
   assert.ok(ids.includes('dashboard'));
-  assert.ok(ids.includes('settings'));
+  assert.deepEqual(ids, ['dashboard', 'roadmap', 'review', 'vocab', 'progress']);
+});
+
+test('вложенные режимы остаются в своём основном разделе', () => {
+  assert.equal(primarySection('listening'), 'review');
+  assert.equal(primarySection('lesson'), 'roadmap');
+  assert.equal(primarySection('settings'), 'progress');
+  assert.deepEqual(sectionTabs('reading').map((tab) => tab.id), ['roadmap', 'reading', 'dialogue']);
 });
 
 test('маршрут без параметра разбирается в имя экрана', () => {

@@ -33,11 +33,37 @@ function furtherCard(a, b) {
 function mergeCards(local = {}, remote = {}) {
   const out = {};
   for (const id of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    const sources = [local[id], remote[id]].filter(Boolean);
     const card = furtherCard(local[id], remote[id]);
-    const hasLapseField = [local[id], remote[id]].some(
+    const hasReviewField = sources.some(
+      (source) => Object.hasOwn(source, 'lastReviewAt'),
+    );
+    const latestReview = sources
+      .filter((source) => source.lastReviewAt)
+      .sort((a, b) => a.lastReviewAt.localeCompare(b.lastReviewAt))
+      .at(-1);
+
+    if (latestReview) {
+      // Ошибка активна только до следующей попытки. В отличие от прогресса,
+      // здесь побеждает самая свежая попытка, даже если она была успешной.
+      out[id] = {
+        ...card,
+        lastLapseAt: latestReview.lastLapseAt || null,
+        lastReviewAt: latestReview.lastReviewAt,
+      };
+      continue;
+    }
+
+    if (hasReviewField) {
+      out[id] = { ...card, lastLapseAt: null, lastReviewAt: null };
+      continue;
+    }
+
+    const hasLapseField = sources.some(
       (source) => source && Object.hasOwn(source, 'lastLapseAt'),
     );
-    const lastLapseAt = [local[id]?.lastLapseAt, remote[id]?.lastLapseAt]
+    const lastLapseAt = sources
+      .map((source) => source.lastLapseAt)
       .filter(Boolean)
       .sort()
       .at(-1) || null;

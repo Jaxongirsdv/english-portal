@@ -248,7 +248,10 @@ export function renderProgress() {
   const v = vocabSummary(state);
 
   return `
-    <h1>Разбор прогресса</h1>
+    <div class="row-between">
+      <h1>Разбор прогресса</h1>
+      <button class="icon-button" data-nav="settings" aria-label="Открыть настройки">⚙</button>
+    </div>
     <p class="subtitle">
       Не сколько сделано, а что из этого держится в памяти и что мешает дальше.
     </p>
