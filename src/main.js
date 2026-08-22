@@ -1,6 +1,6 @@
 import './styles.css';
 
-import { loadState, completeOnboarding } from './core/storage.js';
+import { loadState, completeOnboarding, hasSaveError } from './core/storage.js';
 import { speak, speakSlow } from './core/speech.js';
 import { allVocabIds } from './data/vocab.js';
 import { dueCardIds } from './core/srs.js';
@@ -8,7 +8,15 @@ import { initAutoSync, syncStatus, isEnabled as autoSyncEnabled } from './core/a
 
 import { setFilter, setQuery } from './views/vocab.js';
 import { esc } from './core/ui.js';
-import { NAV, parseRoute, primarySection, sectionTabs } from './core/navigation.js';
+import {
+  NAV,
+  parseRoute,
+  primarySection,
+  sectionTabs,
+  routeFromHash,
+  routeHash,
+  routeTarget,
+} from './core/navigation.js';
 import { renderRoute } from './core/render-route.js';
 import {
   handleSettingChange,
@@ -32,12 +40,12 @@ import * as Reading from './views/reading.js';
 
 const app = document.getElementById('app');
 
-let route = { name: 'dashboard', param: null };
+let route = routeFromHash(window.location.hash);
 
-function navigate(target) {
+function applyRoute(target) {
   const { name, param } = parseRoute(target);
 
-  if (name === 'review-mistakes') {
+  if (name === 'review' && param === 'mistakes') {
     Review.startMistakeReview();
     route = { name: 'review', param: null };
     render();
@@ -45,7 +53,7 @@ function navigate(target) {
     return;
   }
 
-  if (name === 'review-quick') {
+  if (name === 'review' && param === 'quick') {
     Review.startQuickReview();
     route = { name: 'review', param: null };
     render();
@@ -75,6 +83,20 @@ function navigate(target) {
   window.scrollTo(0, 0);
 }
 
+function navigate(target) {
+  const normalized = target === 'review-mistakes'
+    ? 'review:mistakes'
+    : target === 'review-quick'
+      ? 'review:quick'
+      : target;
+  const hash = routeHash(normalized);
+  if (window.location.hash === hash) {
+    applyRoute(normalized);
+    return;
+  }
+  window.location.hash = hash;
+}
+
 /** Короткая строка о состоянии синхронизации — чтобы она не была невидимой. */
 function syncBadge() {
   const { state, at, error } = syncStatus();
@@ -93,7 +115,12 @@ function syncBadge() {
 
 function render() {
   const state = loadState();
-  document.documentElement.dataset.theme = state.settings.theme === 'dark' ? 'dark' : 'light';
+  const theme = state.settings.theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute(
+    'content',
+    theme === 'dark' ? '#101c1b' : '#f4f0e8',
+  );
   const due = dueCardIds(allVocabIds()).length;
   const activeSection = primarySection(route.name);
   const tabs = sectionTabs(route.name);
@@ -116,6 +143,10 @@ function render() {
         </div>
       </aside>
       <main class="main">
+        ${hasSaveError() ? `<div class="storage-warning" role="alert">
+          <span>⚠ Прогресс пока не сохраняется в браузере.</span>
+          <button data-nav="settings">Открыть настройки</button>
+        </div>` : ''}
         ${tabs.length ? `<nav class="section-tabs" aria-label="Раздел">
           ${tabs.map((tab) => `<button class="section-tab${route.name === tab.id ? ' active' : ''}" data-nav="${tab.id}">${tab.label}</button>`).join('')}
         </nav>` : ''}
@@ -507,7 +538,11 @@ app.addEventListener('keydown', (e) => {
   }
 });
 
-render();
+window.addEventListener('hashchange', () => {
+  applyRoute(routeTarget(routeFromHash(window.location.hash)));
+});
+
+applyRoute(routeTarget(route));
 
 /**
  * Автосинхронизация: полная перерисовка только когда слияние принесло

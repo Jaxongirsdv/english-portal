@@ -176,6 +176,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .back-link:hover { color: var(--accent); }
 .icon-button { width: 38px; height: 38px; border: 1px solid var(--border); border-radius: 50%; background: var(--bg-elev); color: var(--text-dim); font-size: 17px; }
 .icon-button:hover { color: var(--text); border-color: var(--accent); }
+.storage-warning { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:-26px 0 24px; padding:11px 14px; border:1px solid var(--amber); border-radius:var(--radius-sm); background:var(--amber-soft); color:var(--text); font-size:13px; font-weight:600; }
+.storage-warning button { padding:0; border:0; background:transparent; color:var(--accent); font:inherit; white-space:nowrap; }
+.storage-warning button:hover { text-decoration:underline; }
 
 /* ---------- Типографика ---------- */
 
@@ -672,6 +675,7 @@ table.theory tr:last-child td { border-bottom: none; }
   .sidebar-footer { display: none; }
   .main { padding: 40px 18px 60px; }
   .section-tabs { margin: -20px 0 24px; }
+  .storage-warning { margin: -20px 0 20px; }
   .grid-4, .grid-3 { grid-template-columns: repeat(2, 1fr); }
   .grade-row { grid-template-columns: repeat(2, 1fr); }
   .dashboard-next { align-items: flex-start; flex-direction: column; gap: 18px; }
@@ -689,6 +693,7 @@ table.theory tr:last-child td { border-bottom: none; }
   .sidebar .nav-item .badge { position:absolute; margin:0 0 25px 34px; padding:1px 5px; }
   .section-tabs { width: 100%; margin: -14px 0 22px; border-radius: var(--radius-sm); }
   .section-tab { flex: 1 0 auto; padding: 7px 10px; }
+  .storage-warning { align-items:flex-start; flex-direction:column; margin:-14px 0 18px; }
   .card { padding: 18px; }
   .grid-4, .grid-3 { gap: 8px; }
   .stat { padding: 14px; }

@@ -21,6 +21,8 @@ const SECTION_BY_ROUTE = {
   settings: 'progress',
 };
 
+const ROUTE_NAMES = new Set(Object.keys(SECTION_BY_ROUTE));
+
 const SECTION_TABS = {
   roadmap: [
     { id: 'roadmap', label: 'Уроки' },
@@ -48,4 +50,21 @@ export function sectionTabs(routeName) {
 export function parseRoute(target) {
   const [name, param] = String(target).split(':');
   return { name, param: param || null };
+}
+
+/** Возвращает безопасный маршрут из hash, неизвестные адреса ведут на главную. */
+export function routeFromHash(hash) {
+  const target = String(hash || '').replace(/^#\/?/, '');
+  const route = parseRoute(target || 'dashboard');
+  return ROUTE_NAMES.has(route.name) ? route : { name: 'dashboard', param: null };
+}
+
+/** Собирает адрес GitHub Pages без зависимости от настройки сервера. */
+export function routeHash(target) {
+  const { name, param } = typeof target === 'string' ? parseRoute(target) : target;
+  return `#/${name}${param ? `:${param}` : ''}`;
+}
+
+export function routeTarget(route) {
+  return `${route.name}${route.param ? `:${route.param}` : ''}`;
 }

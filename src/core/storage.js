@@ -51,6 +51,7 @@ const DEFAULT_STATE = {
 };
 
 let state = null;
+let saveFailed = false;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -88,12 +89,14 @@ export function onSave(listener) {
 }
 
 export function saveState() {
-  if (!state) return;
+  if (!state) return true;
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
   } catch {
+    saveFailed = true;
     return false;
   }
+  saveFailed = false;
   for (const listener of saveListeners) {
     try {
       listener();
@@ -102,6 +105,11 @@ export function saveState() {
     }
   }
   return true;
+}
+
+/** Было ли последнее сохранение в браузерное хранилище неуспешным. */
+export function hasSaveError() {
+  return saveFailed;
 }
 
 export function update(mutator) {
@@ -145,16 +153,63 @@ export function exportState() {
   return JSON.stringify(snapshot, null, 2);
 }
 
+function isRecord(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isFiniteNonNegative(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function assertRecordMap(value, name, validateEntry) {
+  if (value === undefined) return;
+  if (!isRecord(value)) throw new Error(`invalid-backup-${name}`);
+  for (const entry of Object.values(value)) validateEntry(entry, name);
+}
+
+function assertStats(entry, name, fields) {
+  if (!isRecord(entry) || fields.some((field) => !isFiniteNonNegative(field in entry ? entry[field] : 0))) {
+    throw new Error(`invalid-backup-${name}`);
+  }
+}
+
+/** Проверяем только форму данных: старые необязательные поля не отбрасываем. */
+function validateBackup(parsed) {
+  if (!isRecord(parsed)) throw new Error('invalid-backup');
+
+  assertRecordMap(parsed.lessons, 'lessons', (lesson, name) => {
+    if (!isRecord(lesson) || (lesson.score !== undefined && !isFiniteNonNegative(lesson.score))) {
+      throw new Error(`invalid-backup-${name}`);
+    }
+  });
+  assertRecordMap(parsed.cards, 'cards', (card, name) => {
+    if (!isRecord(card)) throw new Error(`invalid-backup-${name}`);
+    for (const field of ['reps', 'interval', 'ease', 'lapses']) {
+      if (card[field] !== undefined && !isFiniteNonNegative(card[field])) {
+        throw new Error(`invalid-backup-${name}`);
+      }
+    }
+    for (const field of ['due', 'lastLapseAt', 'lastReviewAt']) {
+      if (card[field] !== undefined && card[field] !== null && typeof card[field] !== 'string') {
+        throw new Error(`invalid-backup-${name}`);
+      }
+    }
+  });
+  assertRecordMap(parsed.history, 'history', (count, name) => {
+    if (!isFiniteNonNegative(count)) throw new Error(`invalid-backup-${name}`);
+  });
+  assertRecordMap(parsed.pronunciation, 'pronunciation', (stats, name) => {
+    assertStats(stats, name, ['attempts', 'exact', 'close']);
+  });
+
+  if (parsed.listening !== undefined) assertStats(parsed.listening, 'listening', ['attempts', 'perfect']);
+  if (parsed.writing !== undefined) assertStats(parsed.writing, 'writing', ['checked', 'errorsFound']);
+  if (parsed.settings !== undefined && !isRecord(parsed.settings)) throw new Error('invalid-backup-settings');
+}
+
 export function importState(json) {
   const parsed = JSON.parse(json);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('invalid-backup');
-  }
-  for (const key of ['lessons', 'cards', 'history']) {
-    if (parsed[key] !== undefined && (!parsed[key] || typeof parsed[key] !== 'object' || Array.isArray(parsed[key]))) {
-      throw new Error(`invalid-backup-${key}`);
-    }
-  }
+  validateBackup(parsed);
   const current = loadState().settings;
 
   state = { ...clone(DEFAULT_STATE), ...parsed };

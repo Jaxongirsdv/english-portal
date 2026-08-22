@@ -20,7 +20,7 @@ globalThis.localStorage = {
   removeItem: (k) => store.delete(k),
 };
 
-const { loadState, update, resetState, exportState, importState } = await import(
+const { loadState, update, resetState, exportState, importState, hasSaveError } = await import(
   '../src/core/storage.js'
 );
 
@@ -130,10 +130,28 @@ test('повреждённая структура бэкапа отклоняе�
   assert.equal(loadState().xp, 42);
 });
 
+test('повреждённые вложенные данные бэкапа не попадают в прогресс', () => {
+  resetState();
+  update((s) => { s.xp = 42; });
+
+  assert.throws(
+    () => importState(JSON.stringify({ cards: { hello: { reps: 'много' } } })),
+    /invalid-backup-cards/,
+  );
+  assert.throws(
+    () => importState(JSON.stringify({ history: { '2026-08-22': 'пять' } })),
+    /invalid-backup-history/,
+  );
+  assert.equal(loadState().xp, 42, 'состояние остаётся прежним после обеих ошибок');
+});
+
 test('ошибка localStorage не ломает сохранение в памяти', () => {
   const original = globalThis.localStorage.setItem;
   globalThis.localStorage.setItem = () => { throw new Error('quota'); };
 
   assert.doesNotThrow(() => update((s) => { s.xp += 1; }));
+  assert.equal(hasSaveError(), true, 'интерфейс должен узнать о несохранённом прогрессе');
   globalThis.localStorage.setItem = original;
+  update((s) => { s.xp += 1; });
+  assert.equal(hasSaveError(), false, 'успешное сохранение снимает предупреждение');
 });
