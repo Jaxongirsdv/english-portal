@@ -1,6 +1,7 @@
 import { findLesson } from '../data/curriculum.js';
 import { getWord } from '../data/vocab.js';
-import { update, addXp, touchStudyDay } from '../core/storage.js';
+import { loadState, update, addXp, touchStudyDay } from '../core/storage.js';
+import { nextCurriculumStep } from '../core/curriculum-progress.js';
 import { esc, speakBtn, shuffle, normalize, plural } from '../core/ui.js';
 import { speak } from '../core/speech.js';
 import { scoreAttempt, VERDICT } from '../core/compare.js';
@@ -17,8 +18,14 @@ export function startLesson(lessonId) {
   s = {
     lesson,
     phase: 'theory',
+    theoryIdx: 0,
+    vocabIdx: 0,
+    theoryCheckShown: false,
+    exercises: lesson.exercises,
     idx: 0,
     correct: 0,
+    mistakes: [],
+    completionXp: 0,
     answered: false,
     wasRight: false,
     verdict: null, // exact | close | wrong — только для перевода
@@ -28,11 +35,7 @@ export function startLesson(lessonId) {
     // Порядок вариантов перемешиваем при каждом входе в урок и держим
     // в состоянии сессии, а не на объекте урока: иначе при повторном
     // прохождении ответ узнавался бы по позиции, а не по смыслу.
-    shuffled: lesson.exercises.map((ex) => {
-      if (ex.type === 'choice' || ex.type === 'listen') return shuffle(ex.options);
-      if (ex.type === 'order') return shuffle(ex.words);
-      return null;
-    }),
+    shuffled: shuffledExercises(lesson.exercises),
   };
 }
 
@@ -81,44 +84,64 @@ function renderTheoryBlock(b) {
 }
 
 function renderTheory() {
-  const { lesson } = s;
+  const { lesson, theoryIdx } = s;
+  const block = lesson.theory[theoryIdx];
+  const checks = lesson.exercises.filter((exercise) => exercise.type === 'choice');
+  const check = checks[theoryIdx % checks.length];
+  const last = theoryIdx === lesson.theory.length - 1;
   return `
-    <button class="btn btn-ghost mb-4" data-nav="roadmap">← К урокам</button>
-    <div class="faint">${esc(lesson.levelCode)} · ${esc(lesson.unitTitle)}</div>
-    <h1>${esc(lesson.title)}</h1>
-    <p class="subtitle">Теория · ≈ ${lesson.duration} мин</p>
-
-    ${lesson.theory.map((b) => `<div class="theory-block">${renderTheoryBlock(b)}</div>`).join('')}
-
-    ${
-      lesson.vocab.length
-        ? `<h2>Слова урока</h2>
-           ${lesson.vocab
-             .map((id) => {
-               const w = getWord(id);
-               if (!w) return '';
-               return `<div class="word-card">
-                  ${speakBtn(w.en)}
-                  <div style="min-width:150px">
-                    <div class="word-en">${esc(w.en)}</div>
-                    <div class="word-ipa">${esc(w.ipa)} · <span class="word-rus">${esc(w.rus)}</span></div>
-                  </div>
-                  <div style="flex:1">
-                    <div class="word-ru">${esc(w.ru)}</div>
-                    <div class="faint">${esc(w.example)} — ${esc(w.exampleRu)}</div>
-                  </div>
-                </div>`;
-             })
-             .join('')}`
-        : ''
-    }
-
-    <div class="mt-6">
-      <button class="btn btn-primary btn-lg" data-lesson-action="to-exercises">
-        Перейти к упражнениям →
-      </button>
-    </div>
+    ${renderLessonHeader('theory')}
+    <main class="lesson-focus-card">
+      <div class="row-between"><div class="dashboard-kicker">ТЕОРИЯ · ШАГ ${theoryIdx + 1} ИЗ ${lesson.theory.length}</div><span class="faint">${esc(lesson.levelCode)} · ${esc(lesson.unitTitle)}</span></div>
+      <h1>${esc(lesson.title)}</h1>
+      <div class="lesson-theory-content">${renderTheoryBlock(block)}</div>
+      ${check ? `<div class="lesson-recall">
+        <div class="dashboard-kicker">БЫСТРАЯ ПРОВЕРКА ПАМЯТИ</div>
+        <strong>${esc(check.prompt)}</strong>
+        ${s.theoryCheckShown ? `<div class="feedback ok">Ответ: <strong>${esc(check.answer)}</strong></div>` : '<button class="btn btn-ghost" data-lesson-action="reveal-check">Показать ответ</button>'}
+      </div>` : ''}
+      <div class="lesson-focus-actions">
+        ${theoryIdx > 0 ? '<button class="btn" data-lesson-action="prev-theory">← Назад</button>' : '<span></span>'}
+        <button class="btn btn-primary btn-lg" data-lesson-action="${last ? (lesson.vocab.length ? 'to-vocab' : 'to-exercises') : 'next-theory'}">${last ? (lesson.vocab.length ? 'Перейти к словам' : 'Начать практику') : 'Следующий шаг'} →</button>
+      </div>
+    </main>
   `;
+}
+
+function renderVocabulary() {
+  const { lesson, vocabIdx } = s;
+  const word = getWord(lesson.vocab[vocabIdx]);
+  const last = vocabIdx === lesson.vocab.length - 1;
+  if (!word) return '';
+  return `${renderLessonHeader('vocab')}
+    <main class="lesson-focus-card lesson-vocab-focus">
+      <div class="row-between"><div class="dashboard-kicker">СЛОВА · ${vocabIdx + 1} ИЗ ${lesson.vocab.length}</div><span class="faint">Слушай и повторяй вслух</span></div>
+      <div class="lesson-word-main">
+        ${speakBtn(word.en)}
+        <h1>${esc(word.en)}</h1>
+        <div class="word-ipa">${esc(word.ipa)} · <span class="word-rus">${esc(word.rus)}</span></div>
+        <div class="word-ru">${esc(word.ru)}</div>
+      </div>
+      <div class="lesson-word-example"><strong>${esc(word.example)}</strong><span>${esc(word.exampleRu)}</span>${speakBtn(word.example)}</div>
+      <div class="lesson-focus-actions">
+        ${vocabIdx > 0 ? '<button class="btn" data-lesson-action="prev-vocab">← Назад</button>' : '<span></span>'}
+        <button class="btn btn-primary btn-lg" data-lesson-action="${last ? 'to-exercises' : 'next-vocab'}">${last ? 'Начать практику' : 'Следующее слово'} →</button>
+      </div>
+    </main>`;
+}
+
+function renderLessonHeader(active) {
+  const stages = [['theory', 'Теория'], ['vocab', 'Слова'], ['exercises', 'Практика'], ['done', 'Результат']];
+  const activeIndex = stages.findIndex(([id]) => id === active);
+  return `<div class="lesson-topbar"><button class="btn btn-ghost" data-lesson-action="exit">← Выйти</button><div class="lesson-stagebar">${stages.map(([id, label], index) => `<span class="${index < activeIndex ? 'done' : index === activeIndex ? 'current' : ''}${id === 'vocab' && !s.lesson.vocab.length ? ' skipped' : ''}"><i>${index < activeIndex ? '✓' : index + 1}</i>${label}</span>`).join('')}</div></div>`;
+}
+
+function shuffledExercises(exercises) {
+  return exercises.map((ex) => {
+    if (ex.type === 'choice' || ex.type === 'listen') return shuffle(ex.options);
+    if (ex.type === 'order') return shuffle(ex.words);
+    return null;
+  });
 }
 
 /* ---------- Рендер упражнений ---------- */
@@ -129,7 +152,7 @@ function renderTheory() {
  * урока — а по этой оценке разбор прогресса потом советует, к чему
  * вернуться, и советовал бы неверно.
  */
-function feedbackBlock(correctText) {
+function feedbackBlock(correctText, exercise) {
   if (s.verdict === VERDICT.CLOSE) {
     return `<div class="feedback ok" style="border-color:var(--amber);background:var(--amber-soft)">
         <strong>Почти — опечатка.</strong>
@@ -139,14 +162,22 @@ function feedbackBlock(correctText) {
   return `<div class="feedback ${s.wasRight ? 'ok' : 'no'}">
       <strong>${s.wasRight ? 'Верно! 🎉' : 'Не совсем.'}</strong>
       ${s.wasRight ? '' : ` Правильный ответ: <strong>${esc(correctText)}</strong>`}
+      <div class="lesson-answer-note">${answerExplanation(exercise, correctText)}</div>
     </div>`;
 }
 
-function renderExercise() {
-  const { lesson, idx, answered, picked } = s;
-  const ex = lesson.exercises[idx];
+function answerExplanation(exercise, correctText) {
+  if (exercise.type === 'listen') return `В записи прозвучало: <strong>${esc(correctText)}</strong>. Прослушай ещё раз и повтори вслух.`;
+  if (exercise.type === 'order') return `Правильный порядок слов: <strong>${esc(correctText)}</strong>.`;
+  if (exercise.type === 'translate') return `Используй эту модель как готовую опору: <strong>${esc(correctText)}</strong>.`;
+  return `Связка для запоминания: <strong>${esc(exercise.prompt)}</strong> → <strong>${esc(correctText)}</strong>.`;
+}
 
-  const dots = lesson.exercises
+function renderExercise() {
+  const { lesson, exercises, idx, answered, picked } = s;
+  const ex = exercises[idx];
+
+  const dots = exercises
     .map((_, i) => {
       const cls = i < idx ? 'done' : i === idx ? 'current' : '';
       return `<div class="ex-dot ${cls}"></div>`;
@@ -236,40 +267,43 @@ function renderExercise() {
     ex.type === 'listen' ? ex.word : ex.type === 'choice' ? ex.answer : ex.answer;
 
   return `
-    <button class="btn btn-ghost mb-4" data-lesson-action="exit">← Выйти</button>
-    <div class="faint">${esc(lesson.title)} · ${idx + 1} из ${lesson.exercises.length}</div>
-    <div class="ex-progress mt-2">${dots}</div>
-
-    <div class="exercise">
+    ${renderLessonHeader('exercises')}
+    <main class="lesson-practice-shell">
+      <div class="row-between"><div><div class="dashboard-kicker">ПРАКТИКА · ${idx + 1} ИЗ ${exercises.length}</div><h2>${esc(lesson.title)}</h2></div><strong class="lesson-live-score">${s.correct} верно</strong></div>
+      <div class="ex-progress mt-2">${dots}</div>
+      <div class="exercise">
       ${body}
 
       ${
         answered
-          ? `${feedbackBlock(correctText)}
+          ? `${feedbackBlock(correctText, ex)}
             <button class="btn btn-primary btn-lg mt-4" data-lesson-action="next">
-              ${idx + 1 < lesson.exercises.length ? 'Дальше →' : 'Завершить урок'}
+              ${idx + 1 < exercises.length ? 'Дальше →' : 'Завершить урок'}
             </button>`
           : ''
       }
-    </div>
+      </div>
+    </main>
   `;
 }
 
 function renderDone() {
-  const { lesson, correct } = s;
-  const total = lesson.exercises.length;
+  const { lesson, exercises, correct } = s;
+  const total = exercises.length;
   const pct = Math.round((correct / total) * 100);
   const words = lesson.vocab.length;
+  const next = nextCurriculumStep(loadState());
   return `
+    ${renderLessonHeader('done')}
     <div class="lesson-complete">
       <div class="lesson-complete__mark">${pct >= 80 ? '🎉' : pct >= 50 ? '👍' : '💪'}</div>
       <div class="dashboard-kicker">УРОК ЗАВЕРШЁН</div>
-      <h1>Отличная работа</h1>
+      <h1>${pct >= 80 ? 'Материал усвоен' : 'Закрепим сложные места'}</h1>
       <p class="subtitle">${correct} из ${total} верно · ${pct}% результата</p>
       <div class="lesson-complete__stats">
-        <div><strong>+25</strong><span>XP за урок</span></div>
+        <div><strong>${s.completionXp ? `+${s.completionXp}` : 'Повтор'}</strong><span>${s.completionXp ? 'XP за урок' : 'без повторного XP'}</span></div>
         <div><strong>${correct}/${total}</strong><span>правильных ответов</span></div>
-        <div><strong>${words}</strong><span>новых слов</span></div>
+        <div><strong>${s.mistakes.length}</strong><span>нужно повторить</span></div>
       </div>
       ${
         words
@@ -277,8 +311,11 @@ function renderDone() {
              теперь они в очереди повторений.</p>`
           : ''
       }
+      ${pct < 80 && s.mistakes.length ? '<div class="callout warn"><span class="callout-label">Рекомендация</span>Повтори только задания, где были ошибки. Это займёт несколько минут и закрепит слабое место.</div>' : '<div class="callout tip"><span class="callout-label">Готово</span>Следующий урок открыт. Новые слова уже добавлены в повторение.</div>'}
       <div class="row lesson-complete__actions" style="justify-content:center">
-        <button class="btn btn-primary btn-lg" data-nav="review">Повторить слова</button>
+        ${pct < 80 && s.mistakes.length ? '<button class="btn btn-primary btn-lg" data-lesson-action="retry-mistakes">Повторить ошибки</button>' : next ? `<button class="btn btn-primary btn-lg" data-nav="${esc(next.route)}">${next.type === 'milestone' ? `Пройти milestone ${esc(next.level.code)}` : 'Следующий урок'} →</button>` : ''}
+        ${pct < 80 && next ? `<button class="btn btn-lg" data-nav="${esc(next.route)}">Продолжить курс</button>` : ''}
+        <button class="btn btn-lg" data-nav="review">Повторить слова</button>
         <button class="btn btn-lg" data-nav="roadmap">К списку уроков</button>
       </div>
     </div>`;
@@ -287,6 +324,7 @@ function renderDone() {
 export function renderLesson() {
   if (!s) return '<div class="empty">Урок не найден</div>';
   if (s.phase === 'theory') return renderTheory();
+  if (s.phase === 'vocab') return renderVocabulary();
   if (s.phase === 'done') return renderDone();
   return renderExercise();
 }
@@ -294,7 +332,7 @@ export function renderLesson() {
 /* ---------- Обработка действий ---------- */
 
 function checkAnswer(value) {
-  const ex = s.lesson.exercises[s.idx];
+  const ex = s.exercises[s.idx];
   let right = false;
 
   if (ex.type === 'choice') right = value === ex.answer;
@@ -314,6 +352,7 @@ function checkAnswer(value) {
   s.wasRight = right;
   s.picked = value;
   if (right) s.correct += 1;
+  else if (!s.mistakes.includes(ex)) s.mistakes.push(ex);
 
   // Опечатка — между верным и неверным: смысл ты знаешь, написание пока нет
   addXp(s.verdict === VERDICT.CLOSE ? 7 : right ? 10 : 3);
@@ -328,7 +367,44 @@ export function handleLessonAction(action, el) {
   if (!s) return false;
 
   switch (action) {
+    case 'reveal-check':
+      s.theoryCheckShown = true;
+      return true;
+
+    case 'prev-theory':
+      s.theoryIdx = Math.max(0, s.theoryIdx - 1);
+      s.theoryCheckShown = false;
+      return true;
+
+    case 'next-theory':
+      s.theoryIdx = Math.min(s.lesson.theory.length - 1, s.theoryIdx + 1);
+      s.theoryCheckShown = false;
+      return true;
+
+    case 'to-vocab':
+      s.phase = 'vocab';
+      s.vocabIdx = 0;
+      return true;
+
+    case 'prev-vocab':
+      s.vocabIdx = Math.max(0, s.vocabIdx - 1);
+      return true;
+
+    case 'next-vocab':
+      s.vocabIdx = Math.min(s.lesson.vocab.length - 1, s.vocabIdx + 1);
+      return true;
+
     case 'to-exercises':
+      s.phase = 'exercises';
+      return true;
+
+    case 'retry-mistakes':
+      if (!s.mistakes.length) return false;
+      s.exercises = [...s.mistakes];
+      s.shuffled = shuffledExercises(s.exercises);
+      s.mistakes = [];
+      s.correct = 0;
+      resetExercise();
       s.phase = 'exercises';
       return true;
 
@@ -341,25 +417,38 @@ export function handleLessonAction(action, el) {
       return true;
 
     case 'next': {
-      if (s.idx + 1 < s.lesson.exercises.length) {
+      if (s.idx + 1 < s.exercises.length) {
         s.idx += 1;
-        s.answered = false;
-        s.verdict = null;
-        s.picked = null;
-        s.chosen = [];
-        s.typed = '';
+        resetExercise(false);
       } else {
-        const score = Math.round((s.correct / s.lesson.exercises.length) * 100);
+        const score = Math.round((s.correct / s.exercises.length) * 100);
+        let firstCompletion = false;
         update((st) => {
-          st.lessons[s.lesson.id] = { completedAt: new Date().toISOString(), score };
+          const previous = st.lessons[s.lesson.id];
+          firstCompletion = !previous;
+          st.lessons[s.lesson.id] = {
+            completedAt: previous?.completedAt || new Date().toISOString(),
+            score: Math.max(previous?.score || 0, score),
+          };
         });
-        addXp(25);
+        s.completionXp = firstCompletion ? 25 : 0;
+        if (firstCompletion) addXp(25);
         s.phase = 'done';
       }
       return true;
     }
   }
   return false;
+}
+
+function resetExercise(resetIndex = true) {
+  if (resetIndex) s.idx = 0;
+  s.answered = false;
+  s.wasRight = false;
+  s.verdict = null;
+  s.picked = null;
+  s.chosen = [];
+  s.typed = '';
 }
 
 export function handleAnswerClick(value) {

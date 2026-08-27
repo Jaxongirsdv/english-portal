@@ -1,8 +1,10 @@
 import { loadState, todayCount } from '../core/storage.js';
-import { allVocabIds, getWord } from '../data/vocab.js';
+import { allVocabIds } from '../data/vocab.js';
 import { dueCardIds, stats } from '../core/srs.js';
-import { CURRICULUM, allLessons, nextLesson } from '../data/curriculum.js';
+import { CURRICULUM, allLessons } from '../data/curriculum.js';
+import { nextCurriculumStep } from '../core/curriculum-progress.js';
 import { insights } from '../core/analytics.js';
+import { b2Sprint } from '../core/b2-sprint.js';
 import { esc, progressBar, plural } from '../core/ui.js';
 
 export function renderDashboard() {
@@ -13,10 +15,12 @@ export function renderDashboard() {
   const mistakes = Object.values(state.cards || {}).filter((card) => card.lastLapseAt).length;
   const lessons = allLessons();
   const done = lessons.filter((l) => state.lessons[l.id]).length;
-  const next = nextLesson(state.lessons);
+  const next = nextCurriculumStep(state);
   const goal = state.settings.dailyGoal;
   const doneToday = todayCount();
   const goalPct = Math.min(100, (doneToday / goal) * 100);
+  const sprint = b2Sprint();
+  const [topInsight] = insights(state);
 
   if (state.onboardingDone !== true) {
     return `
@@ -34,130 +38,66 @@ export function renderDashboard() {
   }
 
   return `
-    <h1>Привет 👋</h1>
-    <p class="subtitle">Сегодня ${plural(doneToday, 'повторение', 'повторения', 'повторений')} из ${goal}. Двадцать минут каждый день дают больше, чем пять часов раз в неделю.</p>
-
-    <div class="grid grid-4 mb-4">
-      <div class="stat">
-        <div class="stat-value">${state.streak}🔥</div>
-        <div class="stat-label">${plural(state.streak, 'день подряд', 'дня подряд', 'дней подряд').replace(/^\d+\s/, '')}</div>
-      </div>
-      <div class="stat">
-        <div class="stat-value">${state.xp}</div>
-        <div class="stat-label">очков опыта</div>
-      </div>
-      <div class="stat">
-        <div class="stat-value">${s.mastered}</div>
-        <div class="stat-label">слов выучено</div>
-      </div>
-      <div class="stat">
-        <div class="stat-value" style="color:${due ? 'var(--amber)' : 'var(--text)'}">${due}</div>
-        <div class="stat-label">к повторению</div>
-      </div>
-    </div>
-
-    <div class="card dashboard-goal mb-4">
-      <div class="row-between mb-4">
-        <div>
-          <h3 style="margin:0">Цель на сегодня</h3>
-          <div class="faint">${doneToday} / ${goal} повторений</div>
-        </div>
-        ${doneToday >= goal ? '<span class="word-status mastered">выполнено ✓</span>' : ''}
-      </div>
-      ${progressBar(goalPct, doneToday >= goal)}
-    </div>
-
-    <div class="quick-practice mb-4">
+    <header class="dashboard-welcome">
       <div>
-        <div class="dashboard-kicker">МАЛЕНЬКИЙ ШАГ · БОЛЬШОЙ РЕЗУЛЬТАТ</div>
-        <strong>Есть только 5 минут?</strong>
-        <span>Возьми несколько карточек и сохрани ритм.</span>
+        <div class="dashboard-kicker">ТВОЙ УЧЕБНЫЙ ДЕНЬ</div>
+        <h1>Продолжаем движение</h1>
+        <p class="subtitle">Один главный шаг, немного повторения и стабильный ритм.</p>
       </div>
-      <button class="btn" data-nav="review-quick">Практика на 5 минут <span aria-hidden="true">→</span></button>
-    </div>
-
-    ${due > 0
-      ? `<div class="card mb-4" style="border-color:var(--amber)">
-          <div class="row-between">
-            <div>
-              <h3 style="margin:0 0 2px">Пора повторить ${plural(due, 'слово', 'слова', 'слов')}</h3>
-              <div class="faint">Повторение сегодня стоит десяти повторений через неделю.</div>
-            </div>
-            <button class="btn btn-primary" data-nav="review">Повторять</button>
-          </div>
-        </div>`
-      : ''}
-
-    ${mistakes > 0
-      ? `<div class="card dashboard-mistakes mb-4">
-          <div class="row-between">
-            <div>
-              <h3 style="margin:0 0 2px">Слова, которые требуют внимания</h3>
-              <div class="faint">${mistakes} ${plural(mistakes, 'карточка ждёт', 'карточки ждут', 'карточек ждут')} короткой тренировки.</div>
-            </div>
-            <button class="btn" data-nav="review-mistakes">Повторить ошибки</button>
-          </div>
-        </div>`
-      : ''}
-
-    ${(() => {
-      // Главное наблюдение показываем и здесь: узкое место, о котором
-      // человек не знает, не поможет ему, даже если лежит в отдельном разделе
-      const [top] = insights(state);
-      if (!top || top.level === 'ok') return '';
-      return `<div class="card mb-4" style="border-color:var(--amber)">
-          <div class="row-between">
-            <div>
-              <h3 style="margin:0 0 2px">${esc(top.title)}</h3>
-              <div class="faint">${esc(top.text)}</div>
-            </div>
-            <button class="btn" data-nav="progress">Разбор</button>
-          </div>
-        </div>`;
-    })()}
+      <div class="dashboard-streak"><strong>${state.streak}</strong><span>${plural(state.streak, 'день', 'дня', 'дней').replace(/^\d+\s/, '')} подряд</span></div>
+    </header>
 
     ${next
-      ? `<div class="card dashboard-next mb-4">
+      ? `<section class="dashboard-next dashboard-next--hero mb-4">
           <div class="dashboard-next__content">
-            <div class="dashboard-kicker">ТВОЙ СЛЕДУЮЩИЙ ШАГ · ${esc(next.levelCode)}</div>
-            <h3>Следующий урок: ${esc(next.title)}</h3>
-            <div class="faint">${esc(next.unitTitle)} · примерно ${next.duration} минут</div>
+            <div class="dashboard-kicker">СЛЕДУЮЩИЙ ШАГ · ${esc(next.level.code)}</div>
+            <h2>${next.type === 'milestone' ? `Milestone уровня ${esc(next.level.code)}` : esc(next.lesson.title)}</h2>
+            <p>${next.type === 'milestone' ? 'Итоговая проверка откроет следующий уровень.' : `${esc(next.lesson.unitTitle)} · ${next.lesson.duration} минут`}</p>
           </div>
-          <button class="btn btn-primary btn-lg dashboard-next__action" data-nav="lesson:${esc(next.id)}">Начать урок <span aria-hidden="true">→</span></button>
-        </div>`
-      : `<div class="card mb-4">
-          <h3 style="margin:0 0 2px">Все готовые уроки пройдены 🎉</h3>
-          <div class="faint">Дальше — повторения и добавление новых юнитов.</div>
-        </div>`}
+          <button class="btn btn-primary btn-lg dashboard-next__action" data-nav="${esc(next.route)}">${next.type === 'milestone' ? 'Пройти milestone' : 'Начать урок'} <span aria-hidden="true">→</span></button>
+        </section>`
+      : `<section class="card dashboard-next mb-4"><div><div class="dashboard-kicker">ПРОГРАММА ЗАВЕРШЕНА</div><h2>Все доступные уровни пройдены</h2></div><button class="btn" data-nav="review">Перейти к повторению</button></section>`}
 
-    <h2>Прогресс по курсу</h2>
-    <div class="card">
-      <div class="row-between mb-4">
-        <span class="dim">Уроков пройдено</span>
-        <strong>${done} / ${lessons.length}</strong>
-      </div>
+    <div class="dashboard-section-head"><div><div class="dashboard-kicker">СЕГОДНЯ</div><h2>Закрепить результат</h2></div><span>${doneToday} из ${goal} повторений</span></div>
+    <div class="dashboard-today-grid mb-4">
+      <section class="card dashboard-review-card${due ? ' dashboard-review-card--due' : ''}">
+        <div class="dashboard-card-icon">${due || '✓'}</div>
+        <div><h3>${due ? `К повторению ${plural(due, 'слово', 'слова', 'слов')}` : 'Повторения выполнены'}</h3><p class="faint">${mistakes ? `${mistakes} сложных карточек требуют особого внимания.` : 'Очередь чистая — можно двигаться дальше.'}</p></div>
+        <div class="dashboard-card-actions">
+          <button class="btn${due ? ' btn-primary' : ''}" data-nav="${due ? 'review' : 'review-quick'}">${due ? 'Повторять' : '5 минут практики'}</button>
+          ${mistakes ? '<button class="btn btn-ghost" data-nav="review-mistakes">Только ошибки</button>' : ''}
+        </div>
+      </section>
+      <section class="card dashboard-goal">
+        <div class="row-between"><div><div class="dashboard-kicker">ДНЕВНАЯ ЦЕЛЬ</div><h3>${doneToday >= goal ? 'Цель выполнена' : `Осталось ${Math.max(0, goal - doneToday)}`}</h3></div><strong>${Math.round(goalPct)}%</strong></div>
+        ${progressBar(goalPct, doneToday >= goal)}
+        <p class="faint">${doneToday >= goal ? 'Отличный ритм. Завтра продолжим.' : 'Короткие сессии тоже считаются.'}</p>
+      </section>
+    </div>
+
+    <div class="dashboard-section-head"><div><div class="dashboard-kicker">ЭКЗАМЕНАЦИОННЫЙ ФОКУС</div><h2>Подготовка к B2</h2></div><span>${sprint.examPassed ? 'цикл завершён' : `${sprint.daysLeft} дн. до экзамена`}</span></div>
+    <div class="dashboard-b2-grid mb-4">
+      ${sprint.task && !sprint.examPassed ? `<section class="card dashboard-b2-task"><div class="dashboard-kicker">ПЛАН НА СЕГОДНЯ</div><h3>${esc(sprint.task.phase)}: ${esc(sprint.task.title)}</h3><p class="faint">${esc(sprint.task.text)}</p><button class="btn btn-primary" data-nav="${esc(sprint.task.action)}">${esc(sprint.task.actionLabel)}</button></section>` : ''}
+      <section class="card dashboard-mock-card"><div class="dashboard-kicker">ДИАГНОСТИКА</div><h3>Мини-пробник B2</h3><p class="faint">Четыре навыка в одном маршруте: Reading, Listening, Writing и Speaking.</p><button class="btn" data-nav="b2-mock">Открыть пробник</button></section>
+    </div>
+
+    <div class="dashboard-section-head"><div><div class="dashboard-kicker">ОБЩАЯ КАРТИНА</div><h2>Твой прогресс</h2></div><button class="btn btn-ghost" data-nav="progress">Подробнее</button></div>
+    <div class="grid grid-4 dashboard-stats mb-4">
+      <div class="stat"><div class="stat-value">${state.xp}</div><div class="stat-label">XP</div></div>
+      <div class="stat"><div class="stat-value">${done}<small>/${lessons.length}</small></div><div class="stat-label">уроков</div></div>
+      <div class="stat"><div class="stat-value">${s.mastered}</div><div class="stat-label">слов выучено</div></div>
+      <div class="stat"><div class="stat-value">${s.learning}</div><div class="stat-label">слов в работе</div></div>
+    </div>
+
+    <section class="card dashboard-course">
+      <div class="row-between mb-4"><span class="dim">Программа курса</span><strong>${Math.round((done / Math.max(1, lessons.length)) * 100)}%</strong></div>
       ${progressBar((done / Math.max(1, lessons.length)) * 100)}
-      <div class="grid grid-3 mt-6">
-        ${CURRICULUM.map((lvl) => {
-          const total = lvl.units.reduce((n, u) => n + u.lessons.length, 0);
-          const d = lvl.units.reduce(
-            (n, u) => n + u.lessons.filter((l) => state.lessons[l.id]).length,
-            0,
-          );
-          const complete = total > 0 && d === total;
-          return `<div>
-            <span class="level-code${complete ? ' done' : ''}">${esc(lvl.code)}</span>
-            <div class="faint mt-2">${total ? `${d} / ${total} уроков` : 'в разработке'}</div>
-          </div>`;
-        }).join('')}
-      </div>
-    </div>
-
-    <h2>Словарь</h2>
-    <div class="grid grid-3">
-      <div class="stat"><div class="stat-value">${s.untouched}</div><div class="stat-label">не начато</div></div>
-      <div class="stat"><div class="stat-value" style="color:var(--amber)">${s.learning}</div><div class="stat-label">в изучении</div></div>
-      <div class="stat"><div class="stat-value" style="color:var(--green)">${s.mastered}</div><div class="stat-label">выучено</div></div>
-    </div>
-  `;
+      <div class="dashboard-levels mt-6">${CURRICULUM.map((lvl) => {
+        const total = lvl.units.reduce((count, unit) => count + unit.lessons.length, 0);
+        const completed = lvl.units.reduce((count, unit) => count + unit.lessons.filter((lesson) => state.lessons[lesson.id]).length, 0);
+        const passed = !!state.milestones?.[lvl.id]?.passed;
+        return `<div class="dashboard-level${passed ? ' dashboard-level--done' : completed ? ' dashboard-level--active' : ''}"><span>${esc(lvl.code)}</span><small>${completed}/${total}</small></div>`;
+      }).join('')}</div>
+      ${topInsight && topInsight.level !== 'ok' ? `<div class="dashboard-insight mt-6"><div><strong>${esc(topInsight.title)}</strong><p>${esc(topInsight.text)}</p></div><button class="btn btn-ghost" data-nav="progress">Разобрать</button></div>` : ''}
+    </section>`;
 }

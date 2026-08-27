@@ -3,6 +3,7 @@ import './styles.css';
 import { loadState, completeOnboarding, hasSaveError } from './core/storage.js';
 import { speak, speakSlow } from './core/speech.js';
 import { allVocabIds } from './data/vocab.js';
+import { getText, plainText } from './data/reading.js';
 import { dueCardIds } from './core/srs.js';
 import { initAutoSync, syncStatus, isEnabled as autoSyncEnabled } from './core/autosync.js';
 
@@ -37,13 +38,22 @@ import * as Listening from './views/listening.js';
 import * as Writing from './views/writing.js';
 import * as Dialogue from './views/dialogue.js';
 import * as Reading from './views/reading.js';
+import * as B2Speaking from './views/b2-speaking.js';
+import * as Milestone from './views/milestone.js';
+import { toggleMockPart, startB2Mock, exitB2Mock, startMockPart, answerMock, nextMockQuestion, finishMockPractice, startMockSpeakingTimer, syncMockText, mockWritingStatus } from './views/b2-mock.js';
+import { isLessonUnlocked } from './core/curriculum-progress.js';
 
 const app = document.getElementById('app');
 
 let route = routeFromHash(window.location.hash);
 
 function applyRoute(target) {
-  const { name, param } = parseRoute(target);
+  let { name, param } = parseRoute(target);
+
+  if (name === 'lesson' && (!param || !isLessonUnlocked(loadState(), param))) {
+    name = 'roadmap';
+    param = null;
+  }
 
   if (name === 'review' && param === 'mistakes') {
     Review.startMistakeReview();
@@ -69,6 +79,9 @@ function applyRoute(target) {
   if (name !== 'writing') Writing.exitWriting();
   if (name !== 'dialogue') Dialogue.exitDialogue();
   if (name !== 'reading') Reading.exitReading();
+  if (name !== 'b2-speaking') B2Speaking.exitB2Speaking();
+  if (name !== 'b2-mock') exitB2Mock();
+  if (name !== 'milestone') Milestone.exitMilestone();
 
   if (name === 'lesson' && param) Lesson.startLesson(param);
   if (name === 'review') Review.startReview();
@@ -77,6 +90,9 @@ function applyRoute(target) {
   if (name === 'writing') Writing.startWriting();
   if (name === 'dialogue') Dialogue.startDialogue();
   if (name === 'reading') Reading.startReading();
+  if (name === 'b2-speaking') B2Speaking.startB2Speaking();
+  if (name === 'b2-mock') startB2Mock();
+  if (name === 'milestone' && param) Milestone.startMilestone(param);
 
   route = { name, param };
   render();
@@ -271,6 +287,53 @@ app.addEventListener('click', (e) => {
   const grade = target('[data-grade]');
   if (grade) {
     if (Review.handleGrade(grade.dataset.grade)) render();
+    return;
+  }
+
+  const mockPart = target('[data-b2-mock-complete]');
+  if (mockPart) {
+    if (toggleMockPart(mockPart.dataset.b2MockComplete)) render();
+    return;
+  }
+
+  const milestoneAnswer = target('[data-milestone-answer]');
+  if (milestoneAnswer) {
+    if (Milestone.answerMilestone(milestoneAnswer.dataset.milestoneAnswer)) render();
+    return;
+  }
+  if (target('[data-milestone-next]')) {
+    if (Milestone.nextMilestoneQuestion()) render();
+    return;
+  }
+  const milestoneRetry = target('[data-milestone-retry]');
+  if (milestoneRetry) {
+    if (Milestone.startMilestone(milestoneRetry.dataset.milestoneRetry)) render();
+    return;
+  }
+  const mockStart = target('[data-b2-mock-start]');
+  if (mockStart) { if (startMockPart(mockStart.dataset.b2MockStart)) render(); return; }
+  const mockAnswer = target('[data-b2-mock-answer]');
+  if (mockAnswer) { if (answerMock(mockAnswer.dataset.b2MockAnswer)) render(); return; }
+  if (target('[data-b2-mock-next]')) { if (nextMockQuestion()) render(); return; }
+  if (target('[data-b2-mock-listen]')) { const text = getText('b2-ice'); if (text) speak(plainText(text)); return; }
+  if (target('[data-b2-mock-speaking-start]')) {
+    startMockSpeakingTimer(render);
+    render();
+    return;
+  }
+  if (target('[data-b2-mock-finish]')) { if (finishMockPractice()) render(); return; }
+  if (target('[data-b2-mock-back]')) { exitB2Mock(); render(); return; }
+
+  if (target('[data-b2-speaking-start]')) {
+    B2Speaking.startTimer(render);
+    return;
+  }
+  if (target('[data-b2-speaking-complete]')) {
+    if (B2Speaking.completeAttempt()) render();
+    return;
+  }
+  if (target('[data-b2-speaking-next]')) {
+    if (B2Speaking.nextPrompt()) render();
     return;
   }
 
@@ -497,6 +560,18 @@ app.addEventListener('input', (e) => {
 
   const chat = e.target.closest('[data-chat-input]');
   if (chat) Dialogue.syncTyped(chat.value);
+
+  const mockWriting = e.target.closest('[data-b2-mock-writing]');
+  if (mockWriting && syncMockText(mockWriting.value)) {
+    const status = mockWritingStatus();
+    const count = document.querySelector('[data-b2-mock-word-count]');
+    const message = document.querySelector('[data-b2-mock-word-status]');
+    if (count) {
+      count.textContent = `${status.words} / ${status.minWords}-${status.maxWords} слов`;
+      count.classList.toggle('mastered', status.inRange);
+    }
+    if (message) message.textContent = status.text;
+  }
 
   // Счётчик слов обновляем точечно, чтобы не терять курсор в тексте
   const essay = e.target.closest('[data-writing-input]');

@@ -10,12 +10,15 @@ const SECTION_BY_ROUTE = {
   dashboard: 'dashboard',
   roadmap: 'roadmap',
   lesson: 'roadmap',
+  milestone: 'roadmap',
   reading: 'roadmap',
   dialogue: 'roadmap',
   review: 'review',
   pronounce: 'review',
   listening: 'review',
   writing: 'review',
+  'b2-speaking': 'review',
+  'b2-mock': 'dashboard',
   vocab: 'vocab',
   progress: 'progress',
   settings: 'progress',
@@ -34,6 +37,7 @@ const SECTION_TABS = {
     { id: 'pronounce', label: 'Произношение' },
     { id: 'listening', label: 'Аудирование' },
     { id: 'writing', label: 'Письмо' },
+    { id: 'b2-speaking', label: 'Speaking B2' },
   ],
 };
 

@@ -15,6 +15,7 @@ import { isGrammarCard } from './srs.js';
 
 /** Слово выучено при интервале 21 день — та же граница, что в srs.js. */
 const MASTERED_DAYS = 21;
+const LEVEL_ORDER = ['A0', 'A1', 'A2', 'B1', 'B2', 'C1'];
 
 /**
  * Какая из двух карточек «дальше» в изучении.
@@ -85,6 +86,26 @@ function mergeLessons(local = {}, remote = {}) {
     out[id] = {
       completedAt: a.completedAt <= b.completedAt ? a.completedAt : b.completedAt,
       score: Math.max(a.score ?? 0, b.score ?? 0),
+    };
+  }
+  return out;
+}
+
+function mergeMilestones(local = {}, remote = {}) {
+  const out = {};
+  for (const id of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    const a = local[id];
+    const b = remote[id];
+    if (!a || !b) {
+      out[id] = a || b;
+      continue;
+    }
+    const completed = [a.completedAt, b.completedAt].filter(Boolean).sort()[0] || null;
+    out[id] = {
+      attempts: Math.max(a.attempts || 0, b.attempts || 0),
+      bestScore: Math.max(a.bestScore || 0, b.bestScore || 0),
+      passed: !!(a.passed || b.passed),
+      completedAt: completed,
     };
   }
   return out;
@@ -171,10 +192,12 @@ export function mergeState(local, remote, today) {
         : local.createdAt || remote.createdAt,
     // XP берём максимумом: сложение удвоило бы очки за общую часть истории
     xp: Math.max(local.xp || 0, remote.xp || 0),
+    level: LEVEL_ORDER[Math.max(LEVEL_ORDER.indexOf(local.level), LEVEL_ORDER.indexOf(remote.level), 0)],
     streak,
     lastStudyDate,
     history,
     lessons: mergeLessons(local.lessons, remote.lessons),
+    milestones: mergeMilestones(local.milestones, remote.milestones),
     cards: mergeCards(local.cards, remote.cards),
     pronunciation: mergePronunciation(local.pronunciation, remote.pronunciation),
     listening: mergeCounters(local.listening, remote.listening, ['attempts', 'perfect']),

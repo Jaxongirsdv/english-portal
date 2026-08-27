@@ -23,6 +23,7 @@ test('вложенные режимы остаются в своём основ�
   assert.equal(primarySection('lesson'), 'roadmap');
   assert.equal(primarySection('settings'), 'progress');
   assert.deepEqual(sectionTabs('reading').map((tab) => tab.id), ['roadmap', 'reading', 'dialogue']);
+  assert.ok(sectionTabs('b2-speaking').some((tab) => tab.id === 'b2-speaking'));
 });
 
 test('маршрут без параметра разбирается в имя экрана', () => {

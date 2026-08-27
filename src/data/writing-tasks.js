@@ -32,10 +32,24 @@ export const WRITING_TASKS = {
     { prompt: 'Объясни, как делается что-то в твоей профессии, не называя исполнителя.', hint: 'Пассивный залог', minWords: 55 },
   ],
   B2: [
-    { prompt: 'Опиши решение, о котором ты жалеешь, и как всё сложилось бы иначе.', hint: 'Условные третьего типа, I wish', minWords: 80 },
-    { prompt: 'Перескажи разговор, который у тебя недавно был.', hint: 'Косвенная речь, согласование времён', minWords: 75 },
-    { prompt: 'Аргументируй позицию: удалённая работа лучше офисной или нет.', hint: 'however, although, therefore; коллокации', minWords: 90 },
-    { prompt: 'Расскажи, чем ты занимался последнее время и к чему это привело.', hint: 'Present Perfect Continuous, Past Perfect', minWords: 75 },
+    {
+      format: 'Неформальное email', minutes: 12, minWords: 50, maxWords: 70,
+      prompt: 'Your friend is considering studying abroad. Write an email describing one benefit and one challenge, then give practical advice.',
+      hint: 'Начни дружелюбно, ответь на все пункты, используй связки and / but / because.',
+      checklist: ['дружелюбное приветствие и завершение', 'ответ на все части задания', '50-70 слов'],
+    },
+    {
+      format: 'Формальное email', minutes: 22, minWords: 120, maxWords: 150,
+      prompt: 'You joined an online course, but several lessons were cancelled. Write to customer service to explain the problem, request a solution and say what result you expect.',
+      hint: 'Dear Sir or Madam, чёткие абзацы, вежливые просьбы: I would appreciate… / Could you…?',
+      checklist: ['формальное обращение и завершение', 'проблема, просьба и ожидаемый результат', '120-150 слов'],
+    },
+    {
+      format: 'Article / blog post', minutes: 35, minWords: 180, maxWords: 200,
+      prompt: 'Write an article for a student blog: “Should universities require students to do volunteer work?” Give your opinion, reasons and an example.',
+      hint: 'Заголовок, вступление с позицией, 2-3 абзаца с аргументами, вывод. Связки: however, therefore, for example.',
+      checklist: ['понятный заголовок и абзацы', 'позиция, аргументы и пример', '180-200 слов'],
+    },
   ],
   C1: [
     { prompt: 'Напиши краткий аналитический комментарий о тенденции в твоей отрасли.', hint: 'Академический регистр, хеджирование, формальные связки', minWords: 110 },

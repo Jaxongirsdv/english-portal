@@ -74,6 +74,18 @@ const xp = () => loadState().xp;
 
 test.afterEach(() => Lesson.exitLesson());
 
+test('теория проходится короткими шагами', () => {
+  resetState();
+  Lesson.startLesson(LESSON.id);
+  const first = Lesson.renderLesson();
+  assert.ok(first.includes('ТЕОРИЯ · ШАГ 1'), 'виден номер текущего шага');
+
+  if (LESSON.theory.length > 1) {
+    Lesson.handleLessonAction('next-theory');
+    assert.ok(Lesson.renderLesson().includes('ТЕОРИЯ · ШАГ 2'), 'открывается следующий блок, а не вся теория сразу');
+  }
+});
+
 test('точный перевод засчитывается', () => {
   const ex = upToTranslate();
   const before = xp();
@@ -173,4 +185,38 @@ test('в «собери предложение» опечаток не быва�
 
   const after = Lesson.renderLesson();
   assert.ok(!after.includes('Почти'), 'порядок слов — это выбор, а не опечатка');
+});
+
+test('после слабой попытки можно повторить только ошибки', () => {
+  resetState();
+  Lesson.startLesson(LESSON.id);
+  Lesson.handleLessonAction('to-exercises');
+
+  for (const ex of LESSON.exercises) {
+    if (ex.type === 'choice' || ex.type === 'listen') Lesson.handleAnswerClick('__wrong__');
+    else Lesson.handleLessonAction('check');
+    Lesson.handleLessonAction('next');
+  }
+
+  assert.ok(Lesson.renderLesson().includes('Повторить ошибки'));
+  assert.equal(Lesson.handleLessonAction('retry-mistakes'), true);
+  assert.ok(Lesson.renderLesson().includes(`1 ИЗ ${LESSON.exercises.length}`));
+});
+
+test('повторное прохождение не начисляет второй бонус за урок', () => {
+  const complete = () => {
+    Lesson.startLesson(LESSON.id);
+    Lesson.handleLessonAction('to-exercises');
+    for (const ex of LESSON.exercises) {
+      answerCorrectly(ex);
+      Lesson.handleLessonAction('next');
+    }
+    Lesson.exitLesson();
+  };
+
+  resetState();
+  complete();
+  const afterFirst = xp();
+  complete();
+  assert.equal(xp() - afterFirst, LESSON.exercises.length * 10, 'за ответы XP остаётся, бонус +25 выдаётся один раз');
 });

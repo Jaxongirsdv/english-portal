@@ -1,6 +1,12 @@
 import { loadState } from '../core/storage.js';
 import { CURRICULUM } from '../data/curriculum.js';
 import { reviewDebt } from '../core/analytics.js';
+import {
+  isLessonUnlocked,
+  isLevelUnlocked,
+  isMilestoneUnlocked,
+  levelProgress,
+} from '../core/curriculum-progress.js';
 import { esc, progressBar, plural } from '../core/ui.js';
 
 /** С какого отставания предупреждение перестаёт быть придиркой. */
@@ -43,26 +49,24 @@ export function renderRoadmap() {
     ${debtCallout(state)}
 
     ${CURRICULUM.map((level) => {
-      const total = level.units.reduce((n, u) => n + u.lessons.length, 0);
-      const done = level.units.reduce(
-        (n, u) => n + u.lessons.filter((l) => state.lessons[l.id]).length,
-        0,
-      );
-      const complete = total > 0 && done === total;
+      const { total, done, complete } = levelProgress(state, level);
+      const levelUnlocked = isLevelUnlocked(state, level);
+      const milestone = state.milestones?.[level.id];
+      const milestoneUnlocked = isMilestoneUnlocked(state, level.id);
 
       return `
-        <div class="level-card">
+        <div class="level-card${levelUnlocked ? '' : ' level-card--locked'}">
           <div class="level-head">
-            <span class="level-code${complete ? ' done' : ''}">${esc(level.code)}</span>
+            <span class="level-code${milestone?.passed ? ' done' : ''}">${esc(level.code)}</span>
             <strong style="font-size:17px">${esc(level.title)}</strong>
             <span class="faint" style="margin-left:auto">${
-              total ? `${done} / ${total}` : 'скоро'
+              levelUnlocked ? `${done} / ${total}` : 'заблокировано'
             }</span>
           </div>
           <div class="faint" style="margin-bottom:12px">${esc(level.goal)}</div>
-          ${total ? progressBar((done / total) * 100, complete) : ''}
+          ${levelUnlocked ? progressBar((done / total) * 100, milestone?.passed) : ''}
 
-          ${level.units
+          ${levelUnlocked ? level.units
             .map((unit) => {
               const uDone = unit.lessons.filter((l) => state.lessons[l.id]).length;
               const planned = unit.planned || unit.lessons.length === 0;
@@ -87,17 +91,24 @@ export function renderRoadmap() {
                   ${unit.lessons
                     .map((lesson) => {
                       const isDone = !!state.lessons[lesson.id];
+                      const unlocked = isLessonUnlocked(state, lesson.id);
                       return `
-                        <button class="lesson-row" data-nav="lesson:${esc(lesson.id)}">
-                          <span class="lesson-check${isDone ? ' done' : ''}">${isDone ? '✓' : ''}</span>
+                        <button class="lesson-row${unlocked ? '' : ' lesson-row--locked'}" ${unlocked ? `data-nav="lesson:${esc(lesson.id)}"` : 'disabled'}>
+                          <span class="lesson-check${isDone ? ' done' : ''}">${isDone ? '✓' : unlocked ? '→' : '×'}</span>
                           <span style="flex:1">${esc(lesson.title)}</span>
-                          <span class="faint">${lesson.duration} мин</span>
+                          <span class="faint">${unlocked ? `${lesson.duration} мин` : 'сначала предыдущий'}</span>
                         </button>`;
                     })
                     .join('')}
                 </div>`;
             })
-            .join('')}
+            .join('') : '<div class="curriculum-lock"><strong>Уровень пока закрыт</strong><span>Заверши milestone предыдущего уровня, чтобы продолжить.</span></div>'}
+
+          ${levelUnlocked ? `<div class="milestone-row${milestoneUnlocked ? ' milestone-row--open' : ''}${milestone?.passed ? ' milestone-row--done' : ''}">
+            <div class="milestone-row__icon">${milestone?.passed ? '✓' : milestoneUnlocked ? 'M' : '×'}</div>
+            <div><strong>Milestone ${esc(level.code)}</strong><div class="faint">${milestone?.passed ? `Пройдено · лучший результат ${milestone.bestScore}%` : milestoneUnlocked ? '5 вопросов · нужно 80%' : `Откроется после ${total - done} оставшихся уроков`}</div></div>
+            ${milestoneUnlocked && !milestone?.passed ? `<button class="btn btn-primary" data-nav="milestone:${esc(level.id)}">Пройти</button>` : ''}
+          </div>` : ''}
         </div>`;
     }).join('')}
   `;

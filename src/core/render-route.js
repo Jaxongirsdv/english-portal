@@ -10,15 +10,21 @@ import * as Listening from '../views/listening.js';
 import * as Writing from '../views/writing.js';
 import * as Dialogue from '../views/dialogue.js';
 import * as Reading from '../views/reading.js';
+import { renderB2Speaking } from '../views/b2-speaking.js';
+import { renderB2Mock } from '../views/b2-mock.js';
+import { renderMilestone } from '../views/milestone.js';
 
 const SCREEN_RENDERERS = {
   dashboard: () => renderDashboard(),
   roadmap: () => renderRoadmap(),
   lesson: () => Lesson.renderLesson(),
+  milestone: () => renderMilestone(),
   review: () => Review.renderReview(),
   pronounce: () => Pronounce.renderPronounce(),
   listening: () => Listening.renderListening(),
   writing: () => Writing.renderWriting(),
+  'b2-speaking': () => renderB2Speaking(),
+  'b2-mock': () => renderB2Mock(),
   dialogue: () => Dialogue.renderDialogue(),
   reading: () => Reading.renderReading(),
   vocab: () => renderVocab(),

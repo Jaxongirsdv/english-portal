@@ -25,6 +25,7 @@ function baseState(over = {}) {
     streak: 0,
     lastStudyDate: null,
     lessons: {},
+    milestones: {},
     cards: {},
     history: {},
     pronunciation: {},
@@ -83,6 +84,18 @@ test('по слову побеждает более продвинутая ка�
 
   assert.equal(mergeState(local, remote, TODAY).cards.w.reps, 4);
   assert.equal(mergeState(remote, local, TODAY).cards.w.reps, 4, 'результат не зависит от порядка');
+});
+
+test('пройденный milestone сохраняется между устройствами', () => {
+  const local = baseState({ level: 'A0', milestones: {} });
+  const remote = baseState({
+    level: 'A1',
+    milestones: { a0: { attempts: 2, bestScore: 80, passed: true, completedAt: '2026-08-16T10:00:00Z' } },
+  });
+  const merged = mergeState(local, remote, TODAY);
+  assert.equal(merged.milestones.a0.passed, true);
+  assert.equal(merged.milestones.a0.bestScore, 80);
+  assert.equal(merged.level, 'A1');
 });
 
 test('свежий успешный ответ снимает ошибку после синхронизации', () => {

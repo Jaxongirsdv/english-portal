@@ -79,7 +79,7 @@ export function refreshCounter() {
   const words = s.text.trim().split(/\s+/).filter(Boolean).length;
 
   const counter = document.querySelector('[data-writing-counter]');
-  if (counter) counter.textContent = `${words} / ${s.task.minWords} слов`;
+  if (counter) counter.textContent = `${words} / ${wordTarget(s.task)} слов`;
 
   const check = document.querySelector('[data-writing-check]');
   if (check) check.disabled = words < s.task.minWords || s.status === 'checking';
@@ -89,8 +89,10 @@ export function refreshCounter() {
     const left = s.task.minWords - words;
     hint.textContent =
       left > 0
-        ? `Нужно ещё ${plural(left, 'слово', 'слова', 'слов')} — короткий текст не даёт материала для разбора.`
-        : '';
+        ? `Нужно ещё ${plural(left, 'слово', 'слова', 'слов')}.`
+        : s.task.maxWords && words > s.task.maxWords
+          ? `Сократи на ${plural(words - s.task.maxWords, 'слово', 'слова', 'слов')}, чтобы уложиться в экзаменационный объём.`
+          : '';
   }
 }
 
@@ -173,22 +175,39 @@ function renderResult() {
   `;
 }
 
+function wordTarget(task) {
+  return task.maxWords ? `${task.minWords}-${task.maxWords}` : String(task.minWords);
+}
+
+function renderB2Toolkit(task) {
+  if (!task.format) return '';
+  return `
+    <div class="b2-writing-toolkit mb-4">
+      <div class="b2-writing-toolkit__meta">
+        <span>CEFR B2</span><span>${esc(task.format)}</span><span>${task.minutes} мин</span><span>${wordTarget(task)} слов</span>
+      </div>
+      <strong>Проверь перед отправкой</strong>
+      <ul>${task.checklist.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
+    </div>`;
+}
+
 export function renderWriting() {
-  if (!hasKey()) return renderNoKey();
   if (!s) startWriting();
   if (!s.task) return '<div class="empty">Для этого уровня заданий пока нет</div>';
 
   const words = s.text.trim().split(/\s+/).filter(Boolean).length;
   const enough = words >= s.task.minWords;
   const busy = s.status === 'checking';
+  const canCheck = hasKey();
 
   return `
     <div class="row-between mb-4">
       <button class="btn btn-ghost" data-nav="dashboard">← Выйти</button>
-      <span class="faint" data-writing-counter>${words} / ${s.task.minWords} слов</span>
+      <span class="faint" data-writing-counter>${words} / ${wordTarget(s.task)} слов</span>
     </div>
 
     <h1>Письмо</h1>
+    ${!canCheck ? `<div class="callout tip mb-4"><span class="callout-label">Режим тренировки</span>Пиши и проверяй себя по чек-листу. Для AI-разбора подключи ключ в <button class="text-link" data-nav="settings">настройках</button>.</div>` : ''}
 
     <div class="row mb-4" style="gap:6px;flex-wrap:wrap">
       ${LEVELS.map(
@@ -203,6 +222,8 @@ export function renderWriting() {
       <div class="faint">Подсказка: ${esc(s.task.hint)} · минимум ${s.task.minWords} слов</div>
     </div>
 
+    ${s.level === 'B2' ? renderB2Toolkit(s.task) : ''}
+
     <textarea class="text-input" data-writing-input rows="8"
       style="resize:vertical;line-height:1.7;font-size:15px"
       placeholder="Пиши по-английски…" ${busy || s.status === 'done' ? 'disabled' : ''}>${esc(s.text)}</textarea>
@@ -211,10 +232,10 @@ export function renderWriting() {
       ${
         s.status === 'done'
           ? ''
-          : `<button class="btn btn-primary btn-lg" data-writing-check
+          : `${canCheck ? `<button class="btn btn-primary btn-lg" data-writing-check
               ${busy || !enough ? 'disabled' : ''}>
               ${busy ? 'Проверяю…' : 'Проверить'}
-            </button>
+            </button>` : ''}
             <button class="btn btn-ghost" data-writing-next ${busy ? 'disabled' : ''}>Другое задание</button>`
       }
     </div>
@@ -223,7 +244,11 @@ export function renderWriting() {
       s.status === 'done'
         ? ''
         : `<div class="faint mt-4" data-writing-hint>${
-            enough ? '' : `Нужно ещё ${plural(s.task.minWords - words, 'слово', 'слова', 'слов')} — короткий текст не даёт материала для разбора.`
+            !enough
+              ? `Нужно ещё ${plural(s.task.minWords - words, 'слово', 'слова', 'слов')}.`
+              : s.task.maxWords && words > s.task.maxWords
+                ? `Сократи на ${plural(words - s.task.maxWords, 'слово', 'слова', 'слов')}, чтобы уложиться в экзаменационный объём.`
+                : ''
           }</div>`
     }
 

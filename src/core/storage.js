@@ -14,6 +14,8 @@ const DEFAULT_STATE = {
   lastStudyDate: null,
   /** id урока -> { completedAt, score } */
   lessons: {},
+  /** id уровня -> { attempts, bestScore, passed, completedAt } */
+  milestones: {},
   /** id слова -> карточка SRS (см. core/srs.js) */
   cards: {},
   /** дата (YYYY-MM-DD) -> сколько повторений сделано */
@@ -70,6 +72,7 @@ export function loadState() {
     state.pronunciation = state.pronunciation || {};
     state.listening = state.listening || { attempts: 0, perfect: 0 };
     state.writing = state.writing || { checked: 0, errorsFound: 0 };
+    state.milestones = state.milestones || {};
   } catch {
     state = clone(DEFAULT_STATE);
   }
@@ -179,6 +182,15 @@ function validateBackup(parsed) {
 
   assertRecordMap(parsed.lessons, 'lessons', (lesson, name) => {
     if (!isRecord(lesson) || (lesson.score !== undefined && !isFiniteNonNegative(lesson.score))) {
+      throw new Error(`invalid-backup-${name}`);
+    }
+  });
+  assertRecordMap(parsed.milestones, 'milestones', (milestone, name) => {
+    if (!isRecord(milestone)
+      || !isFiniteNonNegative(milestone.attempts || 0)
+      || !isFiniteNonNegative(milestone.bestScore || 0)
+      || (milestone.passed !== undefined && typeof milestone.passed !== 'boolean')
+      || (milestone.completedAt !== undefined && milestone.completedAt !== null && typeof milestone.completedAt !== 'string')) {
       throw new Error(`invalid-backup-${name}`);
     }
   });
