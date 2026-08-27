@@ -1,10 +1,19 @@
 import { VOCAB } from '../data/vocab.js';
 import { wordProgress } from '../core/srs.js';
 import { esc, speakBtn } from '../core/ui.js';
+import { unlockedVocabIds } from '../data/curriculum.js';
+import { loadState } from '../core/storage.js';
 
 let filter = 'all';
 let query = '';
+let level = 'all';
+let topic = 'all';
+let scope = 'unlocked';
+let sort = 'course';
+let page = 1;
+const PAGE_SIZE = 24;
 const STATUS_FILTERS = new Set(['all', 'learning', 'mastered', 'due']);
+const LEVELS = ['A0', 'A1', 'A2', 'B1', 'B2', 'C1'];
 
 const TOPICS = {
   greetings: 'Приветствия',
@@ -53,10 +62,27 @@ const TOPICS = {
 };
 
 export function setFilter(value) {
-  filter = STATUS_FILTERS.has(value) || TOPICS[value] ? value : 'all';
+  if (STATUS_FILTERS.has(value)) filter = value;
+  else if (TOPICS[value]) topic = value;
+  else filter = 'all';
+  page = 1;
 }
 export function setQuery(value) {
   query = value;
+  page = 1;
+}
+export function setVocabControl(name, value) {
+  if (name === 'level') level = LEVELS.includes(value) ? value : 'all';
+  if (name === 'topic') topic = TOPICS[value] ? value : 'all';
+  if (name === 'scope') scope = value === 'all' ? 'all' : 'unlocked';
+  if (name === 'sort') sort = ['course', 'alpha', 'progress'].includes(value) ? value : 'course';
+  page = 1;
+}
+export function setVocabPage(value) {
+  const next = Number(value);
+  if (!Number.isInteger(next) || next < 1) return false;
+  page = next;
+  return true;
 }
 
 /** Значок для одной стороны карточки: 👁 узнавание, ✍️ воспроизведение. */
@@ -74,6 +100,7 @@ function wordPercent(p) {
 
 export function renderVocab() {
   const q = query.trim().toLowerCase();
+  const unlocked = new Set(unlockedVocabIds(loadState().lessons));
 
   const list = VOCAB.filter((w) => {
     const p = wordProgress(w.id);
@@ -81,12 +108,20 @@ export function renderVocab() {
     if (filter === 'learning' && (!p.started || p.mastered)) return false;
     if (filter === 'mastered' && !p.mastered) return false;
     if (filter === 'due' && !due) return false;
-    if (!STATUS_FILTERS.has(filter) && w.topic !== filter) return false;
+    if (scope === 'unlocked' && !unlocked.has(w.id)) return false;
+    if (level !== 'all' && w.level !== level) return false;
+    if (topic !== 'all' && w.topic !== topic) return false;
     if (!q) return true;
     return w.en.toLowerCase().includes(q) || w.ru.toLowerCase().includes(q);
+  }).sort((a, b) => {
+    if (sort === 'alpha') return a.en.localeCompare(b.en, 'en');
+    if (sort === 'progress') return wordPercent(wordProgress(b.id)) - wordPercent(wordProgress(a.id));
+    return VOCAB.indexOf(a) - VOCAB.indexOf(b);
   });
 
-  const topics = [...new Set(VOCAB.map((w) => w.topic))];
+  const topics = [...new Set(VOCAB
+    .filter((w) => (scope === 'all' || unlocked.has(w.id)) && (level === 'all' || w.level === level))
+    .map((w) => w.topic))];
   const counts = VOCAB.reduce((out, w) => {
     const p = wordProgress(w.id);
     const due = [p.rec, p.prod].some((card) => card && card.due <= new Date().toISOString().slice(0, 10));
@@ -95,6 +130,9 @@ export function renderVocab() {
     out.due += due ? 1 : 0;
     return out;
   }, { learning: 0, mastered: 0, due: 0 });
+  const pageCount = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  page = Math.min(page, pageCount);
+  const visible = list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return `
     <h1>Словарь</h1>
@@ -104,29 +142,45 @@ export function renderVocab() {
       и ✍️ воспроизведение (рус. → англ.), у каждой свой интервал.
     </p>
 
-    <input class="text-input mb-4" placeholder="Поиск по слову или переводу…"
-           data-vocab-search value="${esc(query)}" />
+    <div class="vocab-toolbar">
+      <input class="text-input" placeholder="Поиск по слову или переводу…"
+             data-vocab-search value="${esc(query)}" />
+      <select class="theme-select" data-vocab-control="scope" aria-label="Доступность слов">
+        <option value="unlocked" ${scope === 'unlocked' ? 'selected' : ''}>Открытые слова</option>
+        <option value="all" ${scope === 'all' ? 'selected' : ''}>Весь словарь</option>
+      </select>
+    </div>
 
-    <div class="row mb-4" style="flex-wrap:wrap;gap:6px">
+    <div class="vocab-statuses">
       <button class="chip${filter === 'all' ? ' active' : ''}"
               style="${filter === 'all' ? 'border-color:var(--accent);color:var(--accent)' : ''}"
               data-filter="all">Все</button>
       <button class="chip${filter === 'learning' ? ' active' : ''}" data-filter="learning">В изучении · ${counts.learning}</button>
       <button class="chip${filter === 'mastered' ? ' active' : ''}" data-filter="mastered">Выучено · ${counts.mastered}</button>
       <button class="chip${filter === 'due' ? ' active' : ''}" data-filter="due">К повторению · ${counts.due}</button>
-      ${topics
-        .map(
-          (t) => `<button class="chip"
-              style="${filter === t ? 'border-color:var(--accent);color:var(--accent)' : ''}"
-              data-filter="${esc(t)}">${esc(TOPICS[t] || t)}</button>`,
-        )
-        .join('')}
+    </div>
+
+    <div class="vocab-controls">
+      <label><span>Уровень</span><select class="theme-select" data-vocab-control="level">
+        <option value="all">Все уровни</option>
+        ${LEVELS.map((item) => `<option value="${item}" ${level === item ? 'selected' : ''}>${item}</option>`).join('')}
+      </select></label>
+      <label><span>Тема</span><select class="theme-select" data-vocab-control="topic">
+        <option value="all">Все темы</option>
+        ${topics.map((item) => `<option value="${esc(item)}" ${topic === item ? 'selected' : ''}>${esc(TOPICS[item] || item)}</option>`).join('')}
+      </select></label>
+      <label><span>Сортировка</span><select class="theme-select" data-vocab-control="sort">
+        <option value="course" ${sort === 'course' ? 'selected' : ''}>По курсу</option>
+        <option value="alpha" ${sort === 'alpha' ? 'selected' : ''}>По алфавиту</option>
+        <option value="progress" ${sort === 'progress' ? 'selected' : ''}>По прогрессу</option>
+      </select></label>
+      <div class="vocab-result-count"><strong>${list.length}</strong><span>найдено</span></div>
     </div>
 
     ${
       list.length === 0
         ? '<div class="empty"><div class="empty-icon">🔍</div>Ничего не найдено</div>'
-        : list
+        : visible
             .map((w) => {
               const p = wordProgress(w.id);
               return `
@@ -149,5 +203,10 @@ export function renderVocab() {
             })
             .join('')
     }
+    ${list.length > PAGE_SIZE ? `<nav class="vocab-pagination" aria-label="Страницы словаря">
+      <button class="btn btn-ghost" data-vocab-page="${page - 1}" ${page === 1 ? 'disabled' : ''}>← Назад</button>
+      <span>Страница <strong>${page}</strong> из ${pageCount}</span>
+      <button class="btn btn-ghost" data-vocab-page="${page + 1}" ${page === pageCount ? 'disabled' : ''}>Дальше →</button>
+    </nav>` : ''}
   `;
 }

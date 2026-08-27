@@ -7,7 +7,7 @@ import { getText, plainText } from './data/reading.js';
 import { dueCardIds } from './core/srs.js';
 import { initAutoSync, syncStatus, isEnabled as autoSyncEnabled } from './core/autosync.js';
 
-import { setFilter, setQuery } from './views/vocab.js';
+import { setFilter, setQuery, setVocabControl, setVocabPage } from './views/vocab.js';
 import { esc } from './core/ui.js';
 import {
   NAV,
@@ -40,6 +40,7 @@ import * as Dialogue from './views/dialogue.js';
 import * as Reading from './views/reading.js';
 import * as B2Speaking from './views/b2-speaking.js';
 import * as Milestone from './views/milestone.js';
+import { setProgressTab } from './views/progress.js';
 import { toggleMockPart, startB2Mock, exitB2Mock, startMockPart, answerMock, nextMockQuestion, finishMockPractice, startMockSpeakingTimer, syncMockText, mockWritingStatus } from './views/b2-mock.js';
 import { isLessonUnlocked } from './core/curriculum-progress.js';
 
@@ -84,7 +85,7 @@ function applyRoute(target) {
   if (name !== 'milestone') Milestone.exitMilestone();
 
   if (name === 'lesson' && param) Lesson.startLesson(param);
-  if (name === 'review') Review.startReview();
+  if (name === 'review') Review.openReview();
   if (name === 'pronounce') Pronounce.startPronounce();
   if (name === 'listening') Listening.startListening();
   if (name === 'writing') Writing.startWriting();
@@ -181,6 +182,14 @@ function render() {
 
 app.addEventListener('click', (e) => {
   const target = (sel) => e.target.closest(sel);
+
+  const settingsSummary = target('.settings-advanced > summary');
+  if (settingsSummary) {
+    e.preventDefault();
+    const details = settingsSummary.closest('.settings-advanced');
+    if (details) details.open = !details.open;
+    return;
+  }
 
   if (target('[data-onboarding-start]')) {
     completeOnboarding();
@@ -293,6 +302,28 @@ app.addEventListener('click', (e) => {
   const mockPart = target('[data-b2-mock-complete]');
   if (mockPart) {
     if (toggleMockPart(mockPart.dataset.b2MockComplete)) render();
+    return;
+  }
+  const levelToggle = target('[data-toggle-level]');
+  if (levelToggle) {
+    const body = document.querySelector(`[data-level-body="${levelToggle.dataset.toggleLevel}"]`);
+    if (body) {
+      body.hidden = !body.hidden;
+      levelToggle.textContent = body.hidden ? 'Показать' : 'Скрыть';
+      levelToggle.setAttribute('aria-expanded', String(!body.hidden));
+    }
+    return;
+  }
+
+  const reviewSession = target('[data-review-session]');
+  if (reviewSession) {
+    if (Review.startReviewSession(reviewSession.dataset.reviewSession)) render();
+    return;
+  }
+
+  if (target('[data-review-home]')) {
+    Review.openReview();
+    render();
     return;
   }
 
@@ -493,6 +524,23 @@ app.addEventListener('click', (e) => {
     render();
     return;
   }
+  const readingFilter = target('[data-reading-filter]');
+  if (readingFilter) {
+    const [name, value] = readingFilter.dataset.readingFilter.split(':');
+    if (Reading.setReadingFilter(name, value)) render();
+    return;
+  }
+  const vocabPage = target('[data-vocab-page]');
+  if (vocabPage) {
+    if (setVocabPage(vocabPage.dataset.vocabPage)) render();
+    window.scrollTo(0, 0);
+    return;
+  }
+  const progressTab = target('[data-progress-tab]');
+  if (progressTab) {
+    if (setProgressTab(progressTab.dataset.progressTab)) render();
+    return;
+  }
 
   // Выбор провайдера проверки письма
   const aiProvider = target('[data-ai-provider]');
@@ -517,6 +565,20 @@ app.addEventListener('click', (e) => {
 });
 
 app.addEventListener('change', (e) => {
+  const readingFilter = e.target.closest('[data-reading-filter-select]');
+  if (readingFilter) {
+    Reading.setReadingFilter(readingFilter.dataset.readingFilterSelect, readingFilter.value);
+    render();
+    return;
+  }
+
+  const vocabControl = e.target.closest('[data-vocab-control]');
+  if (vocabControl) {
+    setVocabControl(vocabControl.dataset.vocabControl, vocabControl.value);
+    render();
+    return;
+  }
+
   const setting = e.target.closest('[data-setting]');
   if (setting) {
     const key = setting.dataset.setting;

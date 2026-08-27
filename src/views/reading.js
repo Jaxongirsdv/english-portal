@@ -24,6 +24,8 @@ import {
  * надо куда-то идти, останавливает чтение совсем.
  */
 let s = null;
+let readingStatus = 'all';
+let readingLevel = 'all';
 
 export function startReading() {
   s = s?.text ? s : { text: null, phase: 'list', quiz: null };
@@ -41,6 +43,15 @@ export function openText(id) {
   const text = getText(id);
   if (!text) return false;
   s = { text, phase: 'read', quiz: createQuiz(text.questions) };
+  update((st) => {
+    st.settings.readingResume = id;
+  });
+  return true;
+}
+
+export function setReadingFilter(name, value) {
+  if (name === 'status') readingStatus = ['all', 'new', 'done'].includes(value) ? value : 'all';
+  if (name === 'level') readingLevel = ['all', 'A0', 'A1', 'A2', 'B1', 'B2', 'C1'].includes(value) ? value : 'all';
   return true;
 }
 
@@ -81,6 +92,7 @@ export function nextQuestion() {
       ...(st.reading || {}),
       [s.text.id]: { score: Math.max(percent, before?.score ?? 0), at: new Date().toISOString() },
     };
+    if (st.settings.readingResume === s.text.id) st.settings.readingResume = null;
   });
   addXp(right * 3);
   touchStudyDay();
@@ -91,8 +103,19 @@ export function nextQuestion() {
 
 function renderList() {
   const state = loadState();
-  const list = textsFor(level());
+  const available = textsFor(level());
   const done = state.reading || {};
+  const resume = getText(state.settings.readingResume);
+  const recommended = resume && available.some((text) => text.id === resume.id)
+    ? resume
+    : available.find((text) => !done[text.id]) || available[0];
+  const levels = [...new Set(available.map((text) => text.level))];
+  const list = available.filter((text) => {
+    if (readingLevel !== 'all' && text.level !== readingLevel) return false;
+    if (readingStatus === 'new' && done[text.id]) return false;
+    if (readingStatus === 'done' && !done[text.id]) return false;
+    return true;
+  });
 
   return `
     <h1>Чтение</h1>
@@ -101,8 +124,25 @@ function renderList() {
       твоего уровня; всё остальное переведено рядом с текстом.
     </p>
 
-    <div class="grid grid-2 mt-6">
-      ${list
+    ${recommended ? `<button class="reading-featured" data-text="${esc(recommended.id)}">
+      <div><span>${resume?.id === recommended.id ? 'Продолжить чтение' : 'Рекомендуем дальше'} · ${esc(recommended.level)}</span><strong>${esc(recommended.title)}</strong><small>${esc(recommended.titleRu)} · ${plural(wordCount(recommended), 'слово', 'слова', 'слов')}</small></div>
+      <span class="reading-featured__action">${resume?.id === recommended.id ? 'Продолжить' : 'Начать'} →</span>
+    </button>` : ''}
+
+    <div class="reading-filters">
+      <div class="reading-filter-chips">
+        <button class="chip${readingStatus === 'all' ? ' active' : ''}" data-reading-filter="status:all">Все · ${available.length}</button>
+        <button class="chip${readingStatus === 'new' ? ' active' : ''}" data-reading-filter="status:new">Новые · ${available.filter((text) => !done[text.id]).length}</button>
+        <button class="chip${readingStatus === 'done' ? ' active' : ''}" data-reading-filter="status:done">Пройденные · ${available.filter((text) => done[text.id]).length}</button>
+      </div>
+      <select class="theme-select" data-reading-filter-select="level" aria-label="Уровень текста">
+        <option value="all">Все уровни</option>
+        ${levels.map((item) => `<option value="${item}" ${readingLevel === item ? 'selected' : ''}>${item}</option>`).join('')}
+      </select>
+    </div>
+
+    <div class="grid grid-2 reading-grid">
+      ${list.length ? list
         .map((t) => {
           const result = done[t.id];
           return `<button class="card" style="text-align:left;cursor:pointer" data-text="${esc(t.id)}">
@@ -117,11 +157,11 @@ function renderList() {
             }</div>
           </button>`;
         })
-        .join('')}
+        .join('') : '<div class="empty reading-empty"><div class="empty-icon">📖</div>В этом фильтре пока нет текстов</div>'}
     </div>
 
     ${
-      list.length < 4
+      available.length < 4
         ? `<p class="faint mt-6">
             Тексты старших уровней откроются вместе с уровнем: читать то,
             для чего ещё нет слов, — бессмысленное занятие.

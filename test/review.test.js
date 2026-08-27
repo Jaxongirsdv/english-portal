@@ -95,6 +95,34 @@ test.afterEach(() => {
   delete globalThis.window;
 });
 
+test('обзор предлагает короткие сессии вместо бесконечной очереди', () => {
+  resetState();
+  update((s) => {
+    s.lessons = { [LESSON.id]: { completedAt: '2026-08-16T00:00:00Z', score: 100 } };
+  });
+  Review.openReview();
+  const html = Review.renderReview();
+  assert.ok(html.includes('Выбери темп на сегодня'));
+  assert.ok(html.includes('data-review-session="10"'));
+  assert.ok(html.includes('data-review-session="20"'));
+  assert.ok(html.includes('data-review-session="40"'));
+  assert.ok(!html.includes('Осталось:'), 'общий долг не должен выглядеть размером обязательной сессии');
+});
+
+test('выбранная сессия ограничивает очередь и показывает локальный прогресс', () => {
+  resetState();
+  update((s) => {
+    s.lessons = { [LESSON.id]: { completedAt: '2026-08-16T00:00:00Z', score: 100 } };
+    s.settings.dailyGoal = 40;
+  });
+  Review.openReview();
+  assert.equal(Review.startReviewSession(10), true);
+  const html = Review.renderReview();
+  const total = Number(html.match(/Сессия: 0\/(\d+)/)?.[1]);
+  assert.ok(total > 0 && total <= 10, 'сессия не превышает выбранный лимит');
+  assert.ok(!html.includes('Осталось:'));
+});
+
 /* ---------- Ответ нельзя увидеть до попытки ---------- */
 
 test('лицевая сторона воспроизведения не содержит английского слова', () => {

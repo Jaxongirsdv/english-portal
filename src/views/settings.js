@@ -28,6 +28,8 @@ export function renderSettings() {
     <h1>Настройки</h1>
     <p class="subtitle">Всё хранится локально в браузере. Никаких аккаунтов и серверов.</p>
 
+    <div class="settings-section-head"><span>Основные</span><small>То, что влияет на ежедневные занятия</small></div>
+
     <div class="card mb-4">
       <h3 style="margin-top:0">Внешний вид</h3>
       <div class="row-between mt-4">
@@ -81,7 +83,15 @@ export function renderSettings() {
       <input type="range" min="5" max="60" step="5" style="width:100%"
              value="${st.settings.dailyGoal}" data-setting="dailyGoal" />
       <div class="faint">15–25 в день — устойчивый темп, который реально выдержать месяцами.</div>
+      ${st.settings.dailyGoal > 25 ? `<div class="settings-goal-warning mt-4"><strong>Высокая нагрузка</strong><span>${st.settings.dailyGoal} повторений может быстро накопить усталость. Для стабильной подготовки лучше 15–25.</span></div>` : ''}
     </div>
+
+    <details class="settings-advanced">
+      <summary>
+        <div><strong>Расширенные настройки</strong><span>Проверка письма, синхронизация и данные</span></div>
+        <span class="settings-advanced__chevron">⌄</span>
+      </summary>
+      <div class="settings-advanced__body">
 
     ${(() => {
       const provider = currentProvider();
@@ -204,6 +214,8 @@ export function renderSettings() {
       </div>
       <input type="file" accept="application/json" data-import-file hidden />
     </div>
+      </div>
+    </details>
 
     <div class="faint mt-6">
       Слов в базе: ${Object.keys(st.cards).length} начато ·

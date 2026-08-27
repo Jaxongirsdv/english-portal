@@ -6,6 +6,7 @@ import {
   isLevelUnlocked,
   isMilestoneUnlocked,
   levelProgress,
+  nextCurriculumStep,
 } from '../core/curriculum-progress.js';
 import { esc, progressBar, plural } from '../core/ui.js';
 
@@ -28,44 +29,53 @@ function debtCallout(state) {
   if (waiting < DEBT_THRESHOLD) return '';
 
   return `
-    <div class="callout warn mb-4">
-      <span class="callout-label">Стоит разгрести</span>
-      ${plural(waiting, 'слово', 'слова', 'слов')} из пройденных уроков
-      ещё ни разу не повторялись. Новый урок добавит к ним ещё —
-      а без повторения они выветрятся, и время на урок уйдёт впустую.
-      <div class="mt-4">
-        <button class="btn btn-primary" data-nav="review">Повторять</button>
-      </div>
+    <div class="roadmap-debt mb-4">
+      <div><span class="callout-label">Перед новым уроком</span><strong>${waiting} слов ждут первого повторения</strong></div>
+      <p>Закрепи хотя бы короткую сессию, чтобы новый материал не вытеснил старый.</p>
+      <button class="btn btn-primary" data-nav="review">Выбрать сессию</button>
     </div>`;
 }
 
 export function renderRoadmap() {
   const state = loadState();
+  const next = nextCurriculumStep(state);
 
   return `
-    <h1>Дорожная карта</h1>
-    <p class="subtitle">От нуля до Advanced. Уроки открываются по порядку — каждый следующий опирается на предыдущий.</p>
+    <div class="roadmap-head">
+      <div><span class="eyebrow">Твой маршрут</span><h1>Дорожная карта</h1><p class="subtitle">От нуля до Advanced. Каждый этап открывает следующий.</p></div>
+      ${next ? `<div class="roadmap-next">
+        <span>Сейчас в работе · ${esc(next.level.code)}</span>
+        <strong>${next.type === 'lesson' ? esc(next.lesson.title) : `Milestone ${esc(next.level.code)}`}</strong>
+        <button class="btn btn-primary" data-nav="${esc(next.route)}">Продолжить ${esc(next.level.code)} →</button>
+      </div>` : '<div class="roadmap-next roadmap-next--done"><span>Маршрут завершён</span><strong>Все уровни пройдены</strong></div>'}
+    </div>
 
     ${debtCallout(state)}
+
+    <div class="roadmap-level-label"><span>Уровни курса</span><small>Завершённые уровни можно раскрыть</small></div>
 
     ${CURRICULUM.map((level) => {
       const { total, done, complete } = levelProgress(state, level);
       const levelUnlocked = isLevelUnlocked(state, level);
       const milestone = state.milestones?.[level.id];
       const milestoneUnlocked = isMilestoneUnlocked(state, level.id);
+      const collapsed = complete && milestone?.passed;
+      const current = next?.level.id === level.id;
 
       return `
-        <div class="level-card${levelUnlocked ? '' : ' level-card--locked'}">
+        <div class="level-card${levelUnlocked ? '' : ' level-card--locked'}${collapsed ? ' level-card--complete' : ''}${current ? ' level-card--current' : ''}">
           <div class="level-head">
             <span class="level-code${milestone?.passed ? ' done' : ''}">${esc(level.code)}</span>
             <strong style="font-size:17px">${esc(level.title)}</strong>
             <span class="faint" style="margin-left:auto">${
-              levelUnlocked ? `${done} / ${total}` : 'заблокировано'
+              collapsed ? `✓ ${total} уроков` : levelUnlocked ? `${done} / ${total}` : 'заблокировано'
             }</span>
+            ${collapsed ? `<button class="btn btn-ghost level-expand" data-toggle-level="${esc(level.id)}" aria-expanded="false">Показать</button>` : ''}
           </div>
-          <div class="faint" style="margin-bottom:12px">${esc(level.goal)}</div>
-          ${levelUnlocked ? progressBar((done / total) * 100, milestone?.passed) : ''}
+          ${!collapsed ? `<div class="faint" style="margin-bottom:12px">${esc(level.goal)}</div>` : ''}
+          ${levelUnlocked && !collapsed ? progressBar((done / total) * 100, milestone?.passed) : ''}
 
+          <div data-level-body="${esc(level.id)}" ${collapsed ? 'hidden' : ''}>
           ${levelUnlocked ? level.units
             .map((unit) => {
               const uDone = unit.lessons.filter((l) => state.lessons[l.id]).length;
@@ -109,6 +119,7 @@ export function renderRoadmap() {
             <div><strong>Milestone ${esc(level.code)}</strong><div class="faint">${milestone?.passed ? `Пройдено · лучший результат ${milestone.bestScore}%` : milestoneUnlocked ? '5 вопросов · нужно 80%' : `Откроется после ${total - done} оставшихся уроков`}</div></div>
             ${milestoneUnlocked && !milestone?.passed ? `<button class="btn btn-primary" data-nav="milestone:${esc(level.id)}">Пройти</button>` : ''}
           </div>` : ''}
+          </div>
         </div>`;
     }).join('')}
   `;

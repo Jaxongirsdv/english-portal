@@ -65,43 +65,93 @@ import {
  */
 let q = null;
 
-
-export function startReview(mode = 'normal') {
+function reviewPool(mode = 'normal') {
   const state = loadState();
   const unlocked = unlockedVocabIds(state.lessons);
-
-  // Долги считаем по всему словарю: если слово когда-то было заведено,
-  // его надо повторять, даже если урок потом переписали.
   const due = mode === 'mistakes'
     ? Object.entries(state.cards || {})
         .filter(([id, card]) => !id.startsWith('grammar:') && card.lastLapseAt)
         .map(([id]) => id)
     : dueCardIds(allVocabIds());
-
   const grammar = unlockedGrammarIds(state.lessons);
   const dueGrammar = mode === 'mistakes' ? [] : dueGrammarIds(grammar).map(grammarCardId);
-
   const freshProd = shuffle(newProductionIds(unlocked)).map((w) => cardId(w, DIRECTION.PROD));
   const freshGrammar = shuffle(newGrammarIds(grammar)).map(grammarCardId);
   const freshRec = shuffle(newRecognitionIds(unlocked)).map((w) => cardId(w, DIRECTION.REC));
-
-  // Порядок нового: обратная сторона слова, затем фраза, затем новое слово.
-  // Воспроизведение и грамматика тренируют извлечение из памяти, узнавание —
-  // самое дешёвое и легче всего наращивается потом.
   const candidates = mode === 'mistakes' ? [] : [...freshProd, ...freshGrammar, ...freshRec];
-
-  // Сколько нового потянуть сегодня, решает не константа, а размер долгов
   const budget = mode === 'mistakes' ? 0 : newCardBudget({
     dueCount: due.length + dueGrammar.length,
     dailyGoal: state.settings.dailyGoal,
   });
-  // Отбор идёт по приоритету, а показ — вперемешку: иначе сессия шла бы
-  // блоками «четыре фразы подряд, потом десять слов подряд», и однообразие
-  // возвращалось бы внутри каждого блока
   const fresh = shuffle(candidates.slice(0, budget));
+  return {
+    state,
+    unlocked,
+    due,
+    dueGrammar,
+    candidates,
+    fresh,
+    queue: [...shuffle([...due, ...dueGrammar]), ...fresh],
+    budget,
+  };
+}
 
-  const queue = [...shuffle([...due, ...dueGrammar]), ...fresh];
-  const sessionQueue = mode === 'quick' ? queue.slice(0, 5) : queue;
+/** Открывает обзор, не наваливая всю очередь до выбора размера сессии. */
+export function openReview() {
+  cancel();
+  q = { setup: true };
+}
+
+function renderReviewSetup() {
+  const pool = reviewPool();
+  const dueCount = pool.due.length + pool.dueGrammar.length;
+  const mistakeCount = Object.values(pool.state.cards || {}).filter((card) => card.lastLapseAt).length;
+  const available = pool.queue.length;
+  const recommended = available <= 10 ? 10 : 20;
+
+  return `
+    <section class="review-hub">
+      <div class="review-hub__intro">
+        <div>
+          <span class="eyebrow">Умное повторение</span>
+          <h1>Выбери темп на сегодня</h1>
+          <p class="subtitle">Короткая законченная сессия полезнее, чем бесконечная очередь. Сначала идут срочные карточки, затем новые.</p>
+        </div>
+        <div class="review-hub__total"><strong>${available}</strong><span>доступно сейчас</span></div>
+      </div>
+
+      <div class="review-queue-grid">
+        <article><span class="review-queue-dot review-queue-dot--due"></span><strong>${dueCount}</strong><small>срочно повторить</small></article>
+        <article><span class="review-queue-dot review-queue-dot--new"></span><strong>${pool.fresh.length}</strong><small>новых в плане</small></article>
+        <article><span class="review-queue-dot review-queue-dot--hard"></span><strong>${mistakeCount}</strong><small>проблемных</small></article>
+      </div>
+
+      ${available ? `<div class="review-session-grid">
+        ${[
+          [10, '5 минут', 'Быстрый разогрев'],
+          [20, '10 минут', 'Оптимально на день'],
+          [40, '20 минут', 'Глубокая практика'],
+        ].map(([cards, time, label]) => `
+          <button class="review-session${cards === recommended ? ' review-session--recommended' : ''}" data-review-session="${cards}">
+            ${cards === recommended ? '<span class="review-session__badge">Рекомендуем</span>' : ''}
+            <strong>${time}</strong>
+            <span>${label}</span>
+            <small>до ${Math.min(cards, available)} карточек</small>
+          </button>`).join('')}
+      </div>` : `<div class="empty review-hub__empty"><div class="empty-icon">👌</div><h2>Очередь чистая</h2><p class="subtitle">Пройди следующий урок, чтобы открыть новые слова и фразы.</p><button class="btn btn-primary" data-nav="roadmap">К урокам</button></div>`}
+
+      ${mistakeCount ? `<button class="btn btn-ghost review-mistakes-action" data-review-mistakes>Отдельно повторить ошибки · ${mistakeCount}</button>` : ''}
+    </section>`;
+}
+
+
+export function startReview(mode = 'normal', maxCards = null) {
+  const { state, unlocked, due, dueGrammar, candidates, fresh, queue, budget } = reviewPool(mode);
+
+  // Долги считаем по всему словарю: если слово когда-то было заведено,
+  // его надо повторять, даже если урок потом переписали.
+  const limit = mode === 'quick' ? 5 : Number.isFinite(maxCards) ? Math.max(1, maxCards) : queue.length;
+  const sessionQueue = queue.slice(0, limit);
 
   q = {
     queue: sessionQueue,
@@ -123,6 +173,8 @@ export function startReview(mode = 'normal') {
     heldBack: candidates.length - fresh.length,
     crowdedOut: mode !== 'mistakes' && budget === 0 && candidates.length > 0,
     mode,
+    limited: sessionQueue.length < queue.length,
+    remainingAfterSession: Math.max(0, queue.length - sessionQueue.length),
   };
   ensurePrepared();
 }
@@ -133,6 +185,13 @@ export function startMistakeReview() {
 
 export function startQuickReview() {
   startReview('quick');
+}
+
+export function startReviewSession(cards) {
+  const size = Number(cards);
+  if (![10, 20, 40].includes(size)) return false;
+  startReview('normal', size);
+  return true;
 }
 
 
@@ -165,11 +224,11 @@ function renderEmpty() {
   return `
     <div class="empty">
       <div class="empty-icon">${done > 0 ? '✨' : lockedOut ? '📘' : '👌'}</div>
-      <h1>${done > 0 ? 'На сегодня всё' : lockedOut ? 'Сначала урок' : 'Повторять пока нечего'}</h1>
+      <h1>${done > 0 ? (q.limited ? 'Сессия завершена' : 'На сегодня всё') : lockedOut ? 'Сначала урок' : 'Повторять пока нечего'}</h1>
       <p class="subtitle">
         ${
           done > 0
-            ? `Повторено ${plural(done, 'карточка', 'карточки', 'карточек')}. Интервалы расставлены — возвращайся завтра.`
+            ? `Повторено ${plural(done, 'карточка', 'карточки', 'карточек')}. ${q.limited ? `В общей очереди осталось ${q.remainingAfterSession}, но дневная цель уже выполнена.` : 'Интервалы расставлены — возвращайся завтра.'}`
             : lockedOut
               ? 'Слова открываются пройденными уроками, чтобы тренажёр не подсовывал лексику без контекста.'
               : 'Все открытые слова повторены. Пройди следующий урок, чтобы добавить новые.'
@@ -182,6 +241,7 @@ function renderEmpty() {
         <div class="stat"><div class="stat-value">${s.untouched}</div><div class="stat-label">впереди</div></div>
       </div>
       <div class="row" style="justify-content:center">
+        ${done > 0 && q.limited ? '<button class="btn btn-primary btn-lg" data-review-home>Выбрать ещё сессию</button>' : ''}
         ${mistakeCount && q.mode !== 'mistakes' ? '<button class="btn btn-primary btn-lg" data-review-mistakes>Повторить ошибки · ' + mistakeCount + '</button>' : ''}
         ${
           heldBack > 0
@@ -250,7 +310,7 @@ function renderGrammar() {
   return `
     <div class="row-between mb-4">
       <button class="btn btn-ghost" data-nav="dashboard">← Выйти</button>
-      <span class="faint">Осталось: ${q.queue.length}</span>
+      <span class="faint">Сессия: ${q.done}/${q.total}</span>
     </div>
     <div class="progress mb-4"><div class="progress-bar" style="width:${progress}%"></div></div>
 
@@ -323,6 +383,7 @@ function renderGrammarBank() {
 
 export function renderReview() {
   if (!q) startReview();
+  if (q.setup) return renderReviewSetup();
   if (q.queue.length === 0) return renderEmpty();
   ensurePrepared();
   if (isGrammarCard(q.queue[0])) return renderGrammar();
@@ -359,7 +420,7 @@ export function renderReview() {
   return `
     <div class="row-between mb-4">
       <button class="btn btn-ghost" data-nav="dashboard">← Выйти</button>
-      <span class="faint">Осталось: ${q.queue.length}</span>
+      <span class="faint">Сессия: ${q.done}/${q.total}</span>
     </div>
     <div class="progress mb-4"><div class="progress-bar" style="width:${progress}%"></div></div>
 

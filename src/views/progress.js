@@ -10,6 +10,7 @@ import {
   insights,
 } from '../core/analytics.js';
 import { esc, progressBar, plural } from '../core/ui.js';
+import { nextCurriculumStep, levelProgress as curriculumLevelProgress } from '../core/curriculum-progress.js';
 
 /**
  * Экран разбора прогресса.
@@ -21,6 +22,14 @@ import { esc, progressBar, plural } from '../core/ui.js';
 
 const LEVEL_CLASS = { warn: 'warn', info: 'tip', ok: 'tip' };
 const LEVEL_LABEL = { warn: 'Узкое место', info: 'Стоит учесть', ok: 'В порядке' };
+let progressTab = 'recommendations';
+const PROGRESS_TABS = new Set(['recommendations', 'skills', 'history']);
+
+export function setProgressTab(value) {
+  if (!PROGRESS_TABS.has(value)) return false;
+  progressTab = value;
+  return true;
+}
 
 function renderInsights(state) {
   const found = insights(state);
@@ -246,17 +255,33 @@ function renderAchievements(state) {
 export function renderProgress() {
   const state = loadState();
   const v = vocabSummary(state);
+  const next = nextCurriculumStep(state);
+  const current = next ? curriculumLevelProgress(state, next.level) : null;
+  const currentPercent = current?.total ? Math.round((current.done / current.total) * 100) : 100;
+
+  const tabContent = {
+    recommendations: `${renderInsights(state)}${renderDebt(state)}${renderWeak(state)}`,
+    skills: `${v.learning && !v.mastered ? `<div class="progress-explainer"><strong>Почему «выучено» пока 0?</strong><span>Слово станет выученным, когда ты уверенно вспомнишь обе стороны и интервалы повторения достигнут 21 дня. ${v.learning} слов уже движутся к этой цели.</span><button class="btn btn-ghost" data-nav="review">Продолжить повторение</button></div>` : ''}${renderSides(state)}${renderGrammar(state)}${renderMistakes(state)}`,
+    history: `${renderActivity(state)}${renderAchievements(state)}${renderLevels(state)}`,
+  };
 
   return `
     <div class="row-between">
       <h1>Разбор прогресса</h1>
       <button class="icon-button" data-nav="settings" aria-label="Открыть настройки">⚙</button>
     </div>
-    <p class="subtitle">
-      Не сколько сделано, а что из этого держится в памяти и что мешает дальше.
-    </p>
+    <p class="subtitle">Не сколько сделано, а что держится в памяти и куда двигаться дальше.</p>
 
-    ${renderInsights(state)}
+    ${next ? `<section class="progress-current">
+      <div class="progress-current__code">${esc(next.level.code)}</div>
+      <div class="progress-current__body">
+        <span>Текущий уровень</span>
+        <strong>${esc(next.level.title)} · ${current.done} из ${current.total} уроков</strong>
+        ${progressBar(currentPercent)}
+      </div>
+      <div class="progress-current__percent">${currentPercent}%</div>
+      <button class="btn btn-primary" data-nav="${esc(next.route)}">Продолжить</button>
+    </section>` : ''}
 
     <div class="grid grid-4 mt-6">
       <div class="stat"><div class="stat-value">${state.streak}🔥</div><div class="stat-label">дней подряд</div></div>
@@ -265,13 +290,11 @@ export function renderProgress() {
       <div class="stat"><div class="stat-value" style="color:var(--green)">${v.mastered}</div><div class="stat-label">слов выучено</div></div>
     </div>
 
-    ${renderDebt(state)}
-    ${renderSides(state)}
-    ${renderGrammar(state)}
-    ${renderActivity(state)}
-    ${renderMistakes(state)}
-    ${renderAchievements(state)}
-    ${renderWeak(state)}
-    ${renderLevels(state)}
+    <nav class="progress-tabs" aria-label="Детали прогресса">
+      <button class="${progressTab === 'recommendations' ? 'active' : ''}" data-progress-tab="recommendations">Рекомендации</button>
+      <button class="${progressTab === 'skills' ? 'active' : ''}" data-progress-tab="skills">Навыки</button>
+      <button class="${progressTab === 'history' ? 'active' : ''}" data-progress-tab="history">История</button>
+    </nav>
+    <section class="progress-tab-content">${tabContent[progressTab]}</section>
   `;
 }
