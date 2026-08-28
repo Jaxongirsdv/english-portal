@@ -524,6 +524,11 @@ app.addEventListener('click', (e) => {
     render();
     return;
   }
+  const offlineChoice = target('[data-offline-choice]');
+  if (offlineChoice) {
+    if (Dialogue.handleOfflineChoice(offlineChoice.dataset.offlineChoice)) render();
+    return;
+  }
   const readingFilter = target('[data-reading-filter]');
   if (readingFilter) {
     const [name, value] = readingFilter.dataset.readingFilter.split(':');

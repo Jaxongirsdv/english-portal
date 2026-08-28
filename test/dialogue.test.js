@@ -23,6 +23,7 @@ const { saveKey, setProvider } = await import('../src/core/ai.js');
 const { getWord, allVocabIds } = await import('../src/data/vocab.js');
 const { SCENARIOS, scenariosFor, getScenario, buildPrompt, normalizeReply, sendTurn } =
   await import('../src/core/dialogue.js');
+const DialogueView = await import('../src/views/dialogue.js');
 
 const SCENE = SCENARIOS[0];
 
@@ -59,6 +60,46 @@ test('у каждой сцены есть первая реплика с пер�
     assert.ok(s.goal.trim(), `${s.id}: непонятно, зачем этот разговор`);
   }
   assert.equal(getScenario('нет такой'), null);
+});
+
+test('без ключа доступны офлайн-сцены, а не тупик настроек', () => {
+  resetState();
+  DialogueView.startDialogue();
+  const html = DialogueView.renderDialogue();
+  assert.ok(html.includes('Офлайн-режим'));
+  assert.ok(html.includes('data-scene="meeting"'));
+  assert.ok(!html.includes('Нужен ключ'));
+  DialogueView.exitDialogue();
+});
+
+test('офлайн-диалог проходит последовательно до результата', () => {
+  resetState();
+  DialogueView.startDialogue();
+  assert.ok(DialogueView.chooseScenario('meeting'));
+  assert.ok(DialogueView.renderDialogue().includes('Шаг 1 из 3'));
+  assert.ok(DialogueView.handleOfflineChoice(0));
+  assert.ok(DialogueView.renderDialogue().includes('Шаг 2 из 3'));
+  assert.ok(DialogueView.handleOfflineChoice(0));
+  assert.ok(DialogueView.handleOfflineChoice(0));
+  assert.ok(DialogueView.renderDialogue().includes('Сцена завершена'));
+  assert.deepEqual(loadState().dialogue.completedScenarios, ['meeting']);
+  assert.equal(loadState().dialogue.offlineCompleted, 1);
+  DialogueView.leaveScenario();
+  assert.ok(DialogueView.renderDialogue().includes('1 из 1'));
+  assert.ok(DialogueView.renderDialogue().includes('✓ Пройдено'));
+  DialogueView.exitDialogue();
+});
+
+test('повтор темы не раздувает прогресс маршрута', () => {
+  resetState();
+  DialogueView.startDialogue();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    assert.ok(DialogueView.chooseScenario('meeting'));
+    for (let step = 0; step < 3; step += 1) assert.ok(DialogueView.handleOfflineChoice(0));
+  }
+  assert.deepEqual(loadState().dialogue.completedScenarios, ['meeting']);
+  assert.equal(loadState().dialogue.offlineCompleted, 2);
+  DialogueView.exitDialogue();
 });
 
 /* ---------- Что уходит в запрос ---------- */

@@ -108,6 +108,9 @@ test('бэкап со старой версии не ломает состоян
   assert.equal(s.xp, 50);
   assert.deepEqual(s.listening, { attempts: 0, perfect: 0 }, 'недостающий раздел берётся по умолчанию');
   assert.deepEqual(s.writing, { checked: 0, errorsFound: 0 });
+  assert.deepEqual(s.reading, {});
+  assert.deepEqual(s.dialogue.completedScenarios, []);
+  assert.deepEqual(s.b2Mock.completed, {});
   assert.equal(s.settings.dailyGoal, 20, 'настройки по умолчанию на месте');
 });
 

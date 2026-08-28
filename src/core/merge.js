@@ -134,6 +134,48 @@ function mergePronunciation(local = {}, remote = {}) {
   return out;
 }
 
+function mergeResults(local = {}, remote = {}) {
+  const out = {};
+  for (const id of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    const a = local[id];
+    const b = remote[id];
+    if (!a || !b) {
+      out[id] = a || b;
+      continue;
+    }
+    out[id] = {
+      score: Math.max(a.score || 0, b.score || 0),
+      at: [a.at, b.at].filter(Boolean).sort().at(-1) || null,
+    };
+  }
+  return out;
+}
+
+function mergeDialogue(local = {}, remote = {}) {
+  return {
+    turns: Math.max(local.turns || 0, remote.turns || 0),
+    offlineCompleted: Math.max(local.offlineCompleted || 0, remote.offlineCompleted || 0),
+    completedScenarios: [...new Set([
+      ...(local.completedScenarios || []),
+      ...(remote.completedScenarios || []),
+    ])],
+  };
+}
+
+function mergeB2Mock(local = {}, remote = {}) {
+  const completed = {};
+  const scores = {};
+  for (const part of new Set([
+    ...Object.keys(local.completed || {}),
+    ...Object.keys(remote.completed || {}),
+  ])) completed[part] = !!(local.completed?.[part] || remote.completed?.[part]);
+  for (const part of new Set([
+    ...Object.keys(local.scores || {}),
+    ...Object.keys(remote.scores || {}),
+  ])) scores[part] = Math.max(local.scores?.[part] || 0, remote.scores?.[part] || 0);
+  return { completed, scores };
+}
+
 function shiftDate(dateStr, days) {
   const d = new Date(dateStr + 'T00:00:00');
   d.setDate(d.getDate() + days);
@@ -184,6 +226,7 @@ export function mergeState(local, remote, today) {
 
   return {
     ...local,
+    onboardingDone: !!(local.onboardingDone || remote.onboardingDone),
     createdAt:
       local.createdAt && remote.createdAt
         ? local.createdAt <= remote.createdAt
@@ -202,6 +245,11 @@ export function mergeState(local, remote, today) {
     pronunciation: mergePronunciation(local.pronunciation, remote.pronunciation),
     listening: mergeCounters(local.listening, remote.listening, ['attempts', 'perfect']),
     writing: mergeCounters(local.writing, remote.writing, ['checked', 'errorsFound']),
+    reading: mergeResults(local.reading, remote.reading),
+    audioTexts: mergeResults(local.audioTexts, remote.audioTexts),
+    dialogue: mergeDialogue(local.dialogue, remote.dialogue),
+    b2Practice: mergeCounters(local.b2Practice, remote.b2Practice, ['speakingDone']),
+    b2Mock: mergeB2Mock(local.b2Mock, remote.b2Mock),
     // Настройки не синхронизируем — они про устройство, а не про прогресс
     settings: local.settings,
   };

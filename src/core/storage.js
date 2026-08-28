@@ -24,8 +24,14 @@ const DEFAULT_STATE = {
   pronunciation: {},
   /** { attempts, perfect } — статистика диктантов */
   listening: { attempts: 0, perfect: 0 },
+  /** id текста -> { score, at } — чтение и аудирование хранятся отдельно */
+  reading: {},
+  audioTexts: {},
   /** { checked, errorsFound } — статистика проверок письма */
   writing: { checked: 0, errorsFound: 0 },
+  dialogue: { turns: 0, offlineCompleted: 0, completedScenarios: [] },
+  b2Practice: { speakingDone: 0 },
+  b2Mock: { completed: {}, scores: {} },
   settings: {
     voiceRate: 0.9,
     theme: 'light',
@@ -71,8 +77,13 @@ export function loadState() {
     // Разделы могли появиться после того, как прогресс уже был сохранён
     state.pronunciation = state.pronunciation || {};
     state.listening = state.listening || { attempts: 0, perfect: 0 };
+    state.reading = state.reading || {};
+    state.audioTexts = state.audioTexts || {};
     state.writing = state.writing || { checked: 0, errorsFound: 0 };
     state.milestones = state.milestones || {};
+    state.dialogue = state.dialogue || { turns: 0, offlineCompleted: 0, completedScenarios: [] };
+    state.b2Practice = state.b2Practice || { speakingDone: 0 };
+    state.b2Mock = state.b2Mock || { completed: {}, scores: {} };
   } catch {
     state = clone(DEFAULT_STATE);
   }
@@ -216,6 +227,24 @@ function validateBackup(parsed) {
 
   if (parsed.listening !== undefined) assertStats(parsed.listening, 'listening', ['attempts', 'perfect']);
   if (parsed.writing !== undefined) assertStats(parsed.writing, 'writing', ['checked', 'errorsFound']);
+  for (const name of ['reading', 'audioTexts']) {
+    assertRecordMap(parsed[name], name, (result, field) => {
+      if (!isRecord(result) || !isFiniteNonNegative(result.score || 0)) throw new Error(`invalid-backup-${field}`);
+    });
+  }
+  if (parsed.dialogue !== undefined) {
+    assertStats(parsed.dialogue, 'dialogue', ['turns', 'offlineCompleted']);
+    if (parsed.dialogue.completedScenarios !== undefined
+      && (!Array.isArray(parsed.dialogue.completedScenarios)
+        || parsed.dialogue.completedScenarios.some((id) => typeof id !== 'string'))) {
+      throw new Error('invalid-backup-dialogue');
+    }
+  }
+  if (parsed.b2Practice !== undefined) assertStats(parsed.b2Practice, 'b2Practice', ['speakingDone']);
+  if (parsed.b2Mock !== undefined
+    && (!isRecord(parsed.b2Mock) || !isRecord(parsed.b2Mock.completed || {}) || !isRecord(parsed.b2Mock.scores || {}))) {
+    throw new Error('invalid-backup-b2Mock');
+  }
   if (parsed.settings !== undefined && !isRecord(parsed.settings)) throw new Error('invalid-backup-settings');
 }
 

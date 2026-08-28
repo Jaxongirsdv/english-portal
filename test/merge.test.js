@@ -31,6 +31,11 @@ function baseState(over = {}) {
     pronunciation: {},
     listening: { attempts: 0, perfect: 0 },
     writing: { checked: 0, errorsFound: 0 },
+    reading: {},
+    audioTexts: {},
+    dialogue: { turns: 0, offlineCompleted: 0, completedScenarios: [] },
+    b2Practice: { speakingDone: 0 },
+    b2Mock: { completed: {}, scores: {} },
     settings: { voiceRate: 0.9, dailyGoal: 20, apiKey: 'local-key' },
     ...over,
   };
@@ -197,6 +202,32 @@ test('настройки и ключ API остаются локальными',
   assert.equal(merged.settings.voiceRate, 0.6);
   assert.equal(merged.settings.dailyGoal, 40);
   assert.equal(merged.settings.apiKey, 'local-key', 'ключ с другого устройства не должен подменять локальный');
+});
+
+test('новые тренажёры не теряют прогресс между устройствами', () => {
+  const local = baseState({
+    onboardingDone: true,
+    reading: { r1: { score: 70, at: '2026-08-15T10:00:00Z' } },
+    dialogue: { turns: 3, offlineCompleted: 1, completedScenarios: ['meeting'] },
+    b2Practice: { speakingDone: 2 },
+    b2Mock: { completed: { Reading: true }, scores: { Reading: 60 } },
+  });
+  const remote = baseState({
+    audioTexts: { a1: { score: 80, at: '2026-08-16T10:00:00Z' } },
+    dialogue: { turns: 5, offlineCompleted: 2, completedScenarios: ['cafe'] },
+    b2Practice: { speakingDone: 4 },
+    b2Mock: { completed: { Listening: true }, scores: { Reading: 90, Listening: 75 } },
+  });
+
+  const merged = mergeState(local, remote, TODAY);
+  assert.equal(merged.onboardingDone, true);
+  assert.equal(merged.reading.r1.score, 70);
+  assert.equal(merged.audioTexts.a1.score, 80);
+  assert.deepEqual(merged.dialogue.completedScenarios.sort(), ['cafe', 'meeting']);
+  assert.equal(merged.dialogue.turns, 5);
+  assert.equal(merged.b2Practice.speakingDone, 4);
+  assert.deepEqual(merged.b2Mock.completed, { Reading: true, Listening: true });
+  assert.equal(merged.b2Mock.scores.Reading, 90);
 });
 
 test('дата создания берётся самая ранняя', () => {

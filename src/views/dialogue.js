@@ -17,6 +17,39 @@ import { esc } from '../core/ui.js';
  */
 let s = null;
 
+const OFFLINE_DIALOGUES = {
+  meeting: [
+    { choices: ['My name is Jahongir.', 'Hello! I am Jahongir.'], reply: 'Nice to meet you! Where are you from?', ru: 'Приятно познакомиться! Откуда ты?' },
+    { choices: ['I am from Uzbekistan.', 'I live in Uzbekistan.'], reply: 'Great! How are you today?', ru: 'Здорово! Как ты сегодня?' },
+    { choices: ['I am fine, thank you.', 'I am good. And you?'], reply: 'I am good too. It was nice to meet you!', ru: 'У меня тоже всё хорошо. Было приятно познакомиться!' },
+  ],
+  cafe: [
+    { choices: ['I would like tea, please.', 'Can I have coffee, please?'], reply: 'Of course. Would you like something to eat?', ru: 'Конечно. Хотите что-нибудь поесть?' },
+    { choices: ['Yes, a sandwich, please.', 'No, thank you.'], reply: 'All right. Is that everything?', ru: 'Хорошо. Это всё?' },
+    { choices: ['Yes. How much is it?', 'Yes, that is all. Thank you.'], reply: 'It is five dollars. Have a nice day!', ru: 'Пять долларов. Хорошего дня!' },
+  ],
+  directions: [
+    { choices: ['Yes. Where is the bank?', 'Can you help me find the station?'], reply: 'Go straight and turn left at the cafe.', ru: 'Идите прямо и поверните налево у кафе.' },
+    { choices: ['Is it far from here?', 'Do I turn left at the cafe?'], reply: 'No, it is about five minutes from here.', ru: 'Нет, это примерно в пяти минутах отсюда.' },
+    { choices: ['Thank you for your help.', 'Great, thank you very much.'], reply: 'You are welcome. Have a good day!', ru: 'Пожалуйста. Хорошего дня!' },
+  ],
+  day: [
+    { choices: ['It was good. I worked.', 'It was busy, but good.'], reply: 'What did you do after work?', ru: 'Что ты делал после работы?' },
+    { choices: ['I went home and cooked dinner.', 'I met my friend after work.'], reply: 'That sounds nice. Did you watch anything?', ru: 'Звучит хорошо. Ты что-нибудь смотрел?' },
+    { choices: ['Yes, I watched a film.', 'No, I read a book.'], reply: 'Sounds like a good evening!', ru: 'Похоже на хороший вечер!' },
+  ],
+  work: [
+    { choices: ['I work as an engineer.', 'I work in an office.'], reply: 'Interesting. What do you usually do at work?', ru: 'Интересно. Чем ты обычно занимаешься на работе?' },
+    { choices: ['I solve problems and work with people.', 'I plan projects and write reports.'], reply: 'What do you like about your job?', ru: 'Что тебе нравится в твоей работе?' },
+    { choices: ['I like learning new things.', 'I like working with my team.'], reply: 'That is important. Good luck with your work!', ru: 'Это важно. Удачи в работе!' },
+  ],
+  opinion: [
+    { choices: ['I agree because it saves time.', 'I partly agree with you.'], reply: 'What is the main advantage for you?', ru: 'Какое главное преимущество для тебя?' },
+    { choices: ['People can work more comfortably.', 'There is no time lost on the road.'], reply: 'That makes sense. Are there any disadvantages?', ru: 'Логично. Есть ли недостатки?' },
+    { choices: ['Yes, communication can be more difficult.', 'Some people may feel lonely.'], reply: 'I agree. A balance between both can work well.', ru: 'Согласен. Баланс между двумя форматами может хорошо работать.' },
+  ],
+};
+
 export function startDialogue() {
   s = s?.scenario ? s : { scenario: null, messages: [], loading: false, error: null, typed: '', hint: false };
 }
@@ -42,8 +75,39 @@ export function chooseScenario(id) {
     typed: '',
     hint: false,
     suggestion: '',
+    mode: hasKey() ? 'ai' : 'offline',
+    offlineStep: 0,
+    completed: false,
   };
   if (loadState().settings.autoSpeak) speak(scenario.opener);
+  return true;
+}
+
+export function handleOfflineChoice(index) {
+  if (!s?.scenario || s.mode !== 'offline' || s.completed) return false;
+  const steps = OFFLINE_DIALOGUES[s.scenario.id] || OFFLINE_DIALOGUES.meeting;
+  const step = steps[s.offlineStep];
+  const choice = step?.choices[Number(index)];
+  if (!step || !choice) return false;
+
+  s.messages.push({ role: 'user', en: choice, ru: '', shown: false });
+  s.messages.push({ role: 'assistant', en: step.reply, ru: step.ru, shown: false });
+  s.offlineStep += 1;
+  s.completed = s.offlineStep >= steps.length;
+  if (s.completed) {
+    addXp(8);
+    touchStudyDay();
+    update((st) => {
+      const completedScenarios = new Set(st.dialogue?.completedScenarios || []);
+      completedScenarios.add(s.scenario.id);
+      st.dialogue = {
+        ...(st.dialogue || {}),
+        offlineCompleted: (st.dialogue?.offlineCompleted || 0) + 1,
+        completedScenarios: [...completedScenarios],
+      };
+    });
+  }
+  if (loadState().settings.autoSpeak) speak(step.reply);
   return true;
 }
 
@@ -105,7 +169,7 @@ export async function handleSend(rerender) {
     addXp(4);
     touchStudyDay();
     update((st) => {
-      st.dialogue = { turns: (st.dialogue?.turns || 0) + 1 };
+      st.dialogue = { ...(st.dialogue || {}), turns: (st.dialogue?.turns || 0) + 1 };
     });
 
     if (state.settings.autoSpeak) speak(result.reply);
@@ -121,36 +185,24 @@ export async function handleSend(rerender) {
 
 /* ---------- Отрисовка ---------- */
 
-function renderNoKey() {
-  const p = PROVIDERS[currentProvider()];
-  return `
-    <h1>Разговор</h1>
-    <p class="subtitle">Единственное место в портале, где язык не тренируют, а используют.</p>
-    <div class="callout warn mt-4">
-      <span class="callout-label">Нужен ключ</span>
-      Разговор идёт через ${esc(p.label)}, а ключ пока не задан.
-      ${p.free ? 'Бесплатный уровень для этого подходит.' : 'Учти, что каждая реплика платная.'}
-      <div class="mt-4"><button class="btn btn-primary" data-nav="settings">В настройки</button></div>
-    </div>
-    <p class="faint mt-4">
-      Остальные разделы от этого не зависят: уроки, повторения и произношение
-      работают без ключа и без интернета.
-    </p>`;
-}
-
 function renderPicker() {
   const list = scenariosFor(level());
+  const aiReady = hasKey();
+  const completed = new Set(loadState().dialogue?.completedScenarios || []);
+  const completedCount = list.filter((scenario) => completed.has(scenario.id)).length;
+  const progress = list.length ? Math.round((completedCount / list.length) * 100) : 0;
   return `
     <h1>Разговор</h1>
     <p class="subtitle">
-      Собеседник говорит только теми словами, которые ты уже проходил.
-      Ошибку разбирает по одной за реплику — чтобы не отбить охоту говорить.
+      ${aiReady ? 'Свободный AI-разговор с разбором ошибок.' : 'Бесплатные офлайн-диалоги работают без ключа и интернета.'}
     </p>
+    <div class="dialogue-mode"><span class="dialogue-mode__dot"></span><div><strong>${aiReady ? `AI · ${esc(PROVIDERS[currentProvider()].label)}` : 'Офлайн-режим'}</strong><small>${aiReady ? 'Можно отвечать своими словами' : 'Выбирай подходящую английскую реплику'}</small></div>${!aiReady ? '<button class="btn btn-ghost" data-nav="settings">Подключить AI</button>' : ''}</div>
+    ${!aiReady ? `<div class="dialogue-progress"><div class="row-between"><strong>Разговорный маршрут</strong><span>${completedCount} из ${list.length}</span></div><div class="progress-track"><span style="width:${progress}%"></span></div><small>${completedCount === list.length ? 'Все доступные темы пройдены. Повтори любую, чтобы закрепить фразы.' : 'Завершай темы по одной: результат сохранится в прогрессе.'}</small></div>` : ''}
     <div class="grid grid-2 mt-6">
       ${list
         .map(
-          (sc) => `<button class="card" style="text-align:left;cursor:pointer" data-scene="${esc(sc.id)}">
-            <div style="font-size:26px">${sc.icon}</div>
+          (sc) => `<button class="card dialogue-scene${completed.has(sc.id) ? ' is-complete' : ''}" data-scene="${esc(sc.id)}">
+            <div class="dialogue-scene__top"><span>${sc.icon}</span>${completed.has(sc.id) ? '<strong>✓ Пройдено</strong>' : '<small>Начать →</small>'}</div>
             <h3 style="margin:6px 0 4px">${esc(sc.title)}</h3>
             <div class="faint">${esc(sc.goal)}</div>
           </button>`,
@@ -158,9 +210,11 @@ function renderPicker() {
         .join('')}
     </div>
     <p class="faint mt-6">
-      Разбор ошибок здесь не влияет на интервалы повторений: языковая модель
-      ошибается и легко хвалит, а прогресс в портале двигают только
-      объективные проверки.
+      ${
+        aiReady
+          ? 'Разбор AI не влияет на интервалы повторений: прогресс двигают только объективные проверки.'
+          : 'Каждый сценарий состоит из трёх шагов. Заверши его, чтобы получить опыт и отметить учебный день.'
+      }
     </p>`;
 }
 
@@ -191,7 +245,6 @@ function renderMessage(m, i) {
 
 export function renderDialogue() {
   if (!s) startDialogue();
-  if (!hasKey()) return renderNoKey();
   if (!s.scenario) return renderPicker();
 
   return `
@@ -207,6 +260,7 @@ export function renderDialogue() {
 
     ${s.error ? `<div class="feedback no">${esc(s.error)}</div>` : ''}
 
+    ${s.mode === 'offline' ? renderOfflineControls() : `
     ${
       s.hint && s.suggestion
         ? `<div class="callout mt-4"><span class="callout-label">Можно ответить</span>${esc(s.suggestion)}</div>`
@@ -220,5 +274,18 @@ export function renderDialogue() {
       <button class="btn btn-primary" data-chat-send ${s.loading ? 'disabled' : ''}>Отправить</button>
       ${s.suggestion ? '<button class="btn btn-ghost" data-chat-hint>Подсказка</button>' : ''}
     </div>
+    `}
   `;
+}
+
+function renderOfflineControls() {
+  const steps = OFFLINE_DIALOGUES[s.scenario.id] || OFFLINE_DIALOGUES.meeting;
+  if (s.completed) {
+    const available = scenariosFor(level());
+    const currentIndex = available.findIndex((scenario) => scenario.id === s.scenario.id);
+    const next = available[currentIndex + 1];
+    return `<div class="dialogue-complete"><span>Сцена завершена · +8 XP</span><strong>${s.scenario.icon} Отличный разговор</strong><p>Ты прошёл ${steps.length} шага и потренировал ${steps.length} полезные реплики.</p><div class="row">${next ? `<button class="btn btn-primary" data-scene="${esc(next.id)}">Дальше: ${esc(next.title)}</button>` : `<button class="btn btn-primary" data-scene="${esc(s.scenario.id)}">Пройти ещё раз</button>`}<button class="btn" data-scene-exit>Все темы</button></div></div>`;
+  }
+  const step = steps[s.offlineStep];
+  return `<div class="offline-replies"><div class="row-between"><strong>Выбери ответ</strong><span class="faint">Шаг ${s.offlineStep + 1} из ${steps.length}</span></div>${step.choices.map((choice, index) => `<button data-offline-choice="${index}"><span>${esc(choice)}</span><small>Нажми, чтобы ответить</small></button>`).join('')}</div>`;
 }
