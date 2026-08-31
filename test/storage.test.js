@@ -115,6 +115,7 @@ test('бэкап со старой версии не ломает состоян
   assert.deepEqual(s.b2Training, { Reading: {}, Listening: {}, Writing: {}, Speaking: {} });
   assert.equal(s.b2FullMock, null);
   assert.equal(s.settings.dailyGoal, 20, 'настройки по умолчанию на месте');
+  assert.equal(s.settings.activeProgram, 'foundation', 'старый прогресс открывается в программе базы');
 });
 
 test('восстановление на чистом устройстве оставляет секреты пустыми', () => {

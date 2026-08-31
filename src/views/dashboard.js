@@ -4,7 +4,6 @@ import { dueCardIds, stats } from '../core/srs.js';
 import { CURRICULUM, allLessons } from '../data/curriculum.js';
 import { nextCurriculumStep } from '../core/curriculum-progress.js';
 import { insights } from '../core/analytics.js';
-import { b2Sprint } from '../core/b2-sprint.js';
 import { esc, progressBar, plural } from '../core/ui.js';
 
 export function renderDashboard() {
@@ -19,7 +18,6 @@ export function renderDashboard() {
   const goal = state.settings.dailyGoal;
   const doneToday = todayCount();
   const goalPct = Math.min(100, (doneToday / goal) * 100);
-  const sprint = b2Sprint();
   const [topInsight] = insights(state);
 
   if (state.onboardingDone !== true) {
@@ -46,19 +44,6 @@ export function renderDashboard() {
       </div>
       <div class="dashboard-streak"><strong>${state.streak}</strong><span>${plural(state.streak, 'день', 'дня', 'дней').replace(/^\d+\s/, '')} подряд</span></div>
     </header>
-
-    <section class="learning-tracks mb-4" aria-label="Выбор маршрута">
-      <article class="learning-track learning-track--base">
-        <div class="learning-track__icon">A→B2</div>
-        <div><span>ТЕКУЩИЙ МАРШРУТ</span><h2>Укрепить базу</h2><p>Уроки по уровням, грамматика, словарь и интервальные повторения.</p></div>
-        <button class="btn btn-primary" data-nav="roadmap">Продолжить курс</button>
-      </article>
-      <article class="learning-track learning-track--exam">
-        <div class="learning-track__icon">B2</div>
-        <div><span>ОТДЕЛЬНЫЙ МАРШРУТ</span><h2>Подготовка к экзамену</h2><p>${sprint.examPassed ? 'Диагностика, четыре навыка и история результатов.' : `${sprint.daysLeft} дней: план, диагностика и практика по времени.`}</p></div>
-        <button class="btn" data-nav="exam">Открыть экзамен B2</button>
-      </article>
-    </section>
 
     ${next
       ? `<section class="dashboard-next dashboard-next--hero mb-4">

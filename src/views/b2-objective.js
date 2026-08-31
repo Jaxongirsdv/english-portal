@@ -169,7 +169,7 @@ function renderList(skill) {
       return `<article class="b2-part-card card"><div class="row-between"><span class="level-code">PART ${part.number}</span>${result ? `<span class="word-status mastered">лучший ${result.score}%</span>` : ''}</div><h2>${esc(part.title)}</h2><p>${esc(part.officialNote)}</p><div class="b2-part-meta"><span>${esc(part.format)}</span><span>${part.minutes} минут</span></div><button class="btn btn-primary" data-b2-objective-start="${esc(part.id)}">${result ? 'Повторить часть' : 'Начать часть'}</button></article>`;
     }).join('')}
   </div>
-  <button class="btn btn-ghost mt-6" data-nav="exam">← К экзаменационному центру</button>`;
+  <button class="btn btn-ghost mt-6" data-nav="exam-skills">← К экзаменационным навыкам</button>`;
 }
 
 function renderPassage(part) {
@@ -221,7 +221,7 @@ function renderDone() {
   const transcript = session.skill === 'Listening' && session.part.audio
     ? `<details class="b2-full-transcript"><summary>Открыть текст записи для разбора</summary><p>${esc(session.part.audio)}</p></details>`
     : '';
-  return `<section class="b2-result card"><div class="dashboard-kicker">PART ${session.part.number} ЗАВЕРШЁН</div><div class="b2-result-score"><strong>${result.score75}</strong><span>из 75 · оценочный балл</span></div><h1>${result.right} из ${result.total} ответов верно</h1><p>${result.percent >= 70 ? 'Формат понятен. Повтори часть позже, чтобы закрепить результат.' : 'Разбери объяснения и повтори часть: сейчас важнее понять тип ловушки, чем запомнить ответ.'}</p>${transcript}<div class="row"><button class="btn btn-primary" data-b2-objective-retry>Повторить часть</button><button class="btn" data-b2-objective-back>К списку частей</button><button class="btn btn-ghost" data-nav="exam">Экзамен B2</button></div><p class="faint mt-4">Официальный результат рассчитывается агентством по полной работе. Этот пересчёт нужен только для отслеживания тренировочной динамики.</p></section>`;
+  return `<section class="b2-result card"><div class="dashboard-kicker">PART ${session.part.number} ЗАВЕРШЁН</div><div class="b2-result-score"><strong>${result.score75}</strong><span>из 75 · оценочный балл</span></div><h1>${result.right} из ${result.total} ответов верно</h1><p>${result.percent >= 70 ? 'Формат понятен. Повтори часть позже, чтобы закрепить результат.' : 'Разбери объяснения и повтори часть: сейчас важнее понять тип ловушки, чем запомнить ответ.'}</p>${transcript}<div class="row"><button class="btn btn-primary" data-b2-objective-retry>Повторить часть</button><button class="btn" data-b2-objective-back>К списку частей</button><button class="btn btn-ghost" data-nav="exam-skills">Все навыки</button></div><p class="faint mt-4">Официальный результат рассчитывается агентством по полной работе. Этот пересчёт нужен только для отслеживания тренировочной динамики.</p></section>`;
 }
 
 export function renderB2Objective(skill) {

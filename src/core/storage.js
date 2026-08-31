@@ -35,6 +35,7 @@ const DEFAULT_STATE = {
   b2Mock: { completed: {}, scores: {}, history: [], currentStartedAt: null, currentSavedAt: null },
   b2FullMock: null,
   settings: {
+    activeProgram: 'foundation',
     voiceRate: 0.9,
     theme: 'light',
     autoSpeak: true,

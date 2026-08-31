@@ -189,7 +189,7 @@ export function renderB2Mock() {
   const history = state.b2Mock?.history || [];
   if (session.part) return OBJECTIVE_TEXTS[session.part] ? renderObjectivePart() : renderPracticePart();
   return `
-    <div class="row-between mb-4"><button class="btn btn-ghost" data-nav="exam">← Экзамен B2</button><span class="level-code">CEFR B2</span></div>
+    <div class="row-between mb-4"><button class="btn btn-ghost" data-nav="exam-mocks">← Пробники</button><span class="level-code">CEFR B2</span></div>
     <h1>Мини-пробник B2</h1>
     <p class="subtitle">Пройди четыре части по порядку и получи карту готовности по навыкам.</p>
     <div class="card mb-4 b2-mock-summary"><strong>${done} / ${total} частей завершено</strong><span>${done === total ? 'Диагностика завершена. Ниже уже готов персональный разбор.' : 'Объективные части считаются автоматически, Writing и Speaking — по честному чеклисту.'}</span></div>

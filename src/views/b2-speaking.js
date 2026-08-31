@@ -158,7 +158,7 @@ export function renderB2Speaking() {
 
   return `
     <div class="row-between mb-4">
-      <button class="btn btn-ghost" data-nav="exam">← Экзамен B2</button>
+      <button class="btn btn-ghost" data-nav="exam-skills">← Все навыки</button>
       <span class="level-code">MULTILEVEL SPEAKING</span>
     </div>
     <h1>Speaking B2</h1>

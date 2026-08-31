@@ -1,6 +1,6 @@
 import './styles.css';
 
-import { loadState, completeOnboarding, hasSaveError } from './core/storage.js';
+import { loadState, completeOnboarding, hasSaveError, update } from './core/storage.js';
 import { speak, speakSlow } from './core/speech.js';
 import { allVocabIds } from './data/vocab.js';
 import { getText, plainText } from './data/reading.js';
@@ -10,9 +10,10 @@ import { initAutoSync, syncStatus, isEnabled as autoSyncEnabled } from './core/a
 import { setFilter, setQuery, setVocabControl, setVocabPage } from './views/vocab.js';
 import { esc } from './core/ui.js';
 import {
-  NAV,
+  navigationForProgram,
   parseRoute,
   primarySection,
+  programForRoute,
   sectionTabs,
   routeFromHash,
   routeHash,
@@ -49,7 +50,9 @@ import { isLessonUnlocked } from './core/curriculum-progress.js';
 
 const app = document.getElementById('app');
 
-let route = routeFromHash(window.location.hash);
+const initialState = loadState();
+const initialRoute = initialState.settings.activeProgram === 'exam' ? 'exam' : 'dashboard';
+let route = routeFromHash(window.location.hash, initialRoute);
 
 function applyRoute(target) {
   let { name, param } = parseRoute(target);
@@ -57,6 +60,13 @@ function applyRoute(target) {
   if (name === 'lesson' && (!param || !isLessonUnlocked(loadState(), param))) {
     name = 'roadmap';
     param = null;
+  }
+
+  if (name !== 'settings') {
+    const nextProgram = programForRoute(name);
+    if (loadState().settings.activeProgram !== nextProgram) {
+      update((state) => { state.settings.activeProgram = nextProgram; });
+    }
   }
 
   if (name === 'review' && param === 'mistakes') {
@@ -150,6 +160,8 @@ function render() {
     theme === 'dark' ? '#101c1b' : '#f4f0e8',
   );
   const due = dueCardIds(allVocabIds()).length;
+  const activeProgram = programForRoute(route.name, state.settings.activeProgram);
+  const navItems = navigationForProgram(activeProgram);
   const activeSection = primarySection(route.name);
   const tabs = sectionTabs(route.name);
 
@@ -157,7 +169,11 @@ function render() {
     <div class="app">
       <aside class="sidebar">
         <div class="logo">English<span>Portal</span></div>
-        ${NAV.map(
+        <div class="program-switcher program-switcher--sidebar" aria-label="Программа обучения">
+          <button class="${activeProgram === 'foundation' ? 'active' : ''}" data-program="foundation">База</button>
+          <button class="${activeProgram === 'exam' ? 'active' : ''}" data-program="exam">Экзамен B2</button>
+        </div>
+        ${navItems.map(
           (n) => `<button class="nav-item${activeSection === n.id ? ' active' : ''}" data-nav="${n.id}">
             <span>${n.icon}</span><span>${n.label}</span>
             ${n.id === 'review' && due ? `<span class="badge">${due}</span>` : ''}
@@ -171,6 +187,10 @@ function render() {
         </div>
       </aside>
       <main class="main">
+        <div class="program-switcher program-switcher--main" aria-label="Программа обучения">
+          <button class="${activeProgram === 'foundation' ? 'active' : ''}" data-program="foundation">Укреплять базу</button>
+          <button class="${activeProgram === 'exam' ? 'active' : ''}" data-program="exam">Экзамен B2</button>
+        </div>
         ${hasSaveError() ? `<div class="storage-warning" role="alert">
           <span>⚠ Прогресс пока не сохраняется в браузере.</span>
           <button data-nav="settings">Открыть настройки</button>
@@ -178,7 +198,7 @@ function render() {
         ${tabs.length ? `<nav class="section-tabs" aria-label="Раздел">
           ${tabs.map((tab) => `<button class="section-tab${route.name === tab.id || (tab.id === 'exam' && ['b2-mock', 'b2-full-mock', 'b2-reading', 'b2-listening', 'b2-writing', 'b2-speaking'].includes(route.name)) ? ' active' : ''}" data-nav="${tab.id}">${tab.label}</button>`).join('')}
         </nav>` : ''}
-        ${route.name === 'settings' ? '<button class="back-link" data-nav="progress">← К прогрессу</button>' : ''}
+        ${route.name === 'settings' ? `<button class="back-link" data-nav="${activeProgram === 'exam' ? 'exam' : 'progress'}">← Назад</button>` : ''}
         ${renderRoute(route)}
       </main>
     </div>
@@ -307,6 +327,14 @@ app.addEventListener('click', (e) => {
   const grade = target('[data-grade]');
   if (grade) {
     if (Review.handleGrade(grade.dataset.grade)) render();
+    return;
+  }
+
+  const program = target('[data-program]');
+  if (program) {
+    const value = program.dataset.program === 'exam' ? 'exam' : 'foundation';
+    update((state) => { state.settings.activeProgram = value; });
+    navigate(value === 'exam' ? 'exam' : 'dashboard');
     return;
   }
 
@@ -769,7 +797,8 @@ app.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('hashchange', () => {
-  applyRoute(routeTarget(routeFromHash(window.location.hash)));
+  const fallback = loadState().settings.activeProgram === 'exam' ? 'exam' : 'dashboard';
+  applyRoute(routeTarget(routeFromHash(window.location.hash, fallback)));
 });
 
 applyRoute(routeTarget(route));
