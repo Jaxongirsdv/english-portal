@@ -371,6 +371,18 @@ app.addEventListener('click', (e) => {
     if (Milestone.answerMilestone(milestoneAnswer.dataset.milestoneAnswer)) render();
     return;
   }
+  if (target('[data-milestone-check]')) {
+    if (Milestone.checkMilestoneInput()) render();
+    return;
+  }
+  if (target('[data-milestone-listen]')) {
+    if (Milestone.playMilestoneListening(false)) render();
+    return;
+  }
+  if (target('[data-milestone-listen-slow]')) {
+    if (Milestone.playMilestoneListening(true)) render();
+    return;
+  }
   if (target('[data-milestone-next]')) {
     if (Milestone.nextMilestoneQuestion()) render();
     return;
@@ -722,6 +734,9 @@ app.addEventListener('input', (e) => {
   const typed = e.target.closest('[data-typed]');
   if (typed) Lesson.syncTyped(typed.value);
 
+  const milestoneInput = e.target.closest('[data-milestone-input]');
+  if (milestoneInput) Milestone.syncMilestoneInput(milestoneInput.value);
+
   const dictation = e.target.closest('[data-listen-input]');
   if (dictation) Listening.syncTyped(dictation.value);
 
@@ -779,6 +794,14 @@ app.addEventListener('keydown', (e) => {
   if (prod) {
     Review.syncTyped(prod.value);
     if (Review.handleCheck()) render();
+    return;
+  }
+
+  const milestoneInput = e.target.closest('[data-milestone-input]');
+  if (milestoneInput) {
+    e.preventDefault();
+    Milestone.syncMilestoneInput(milestoneInput.value);
+    if (Milestone.checkMilestoneInput()) render();
     return;
   }
 

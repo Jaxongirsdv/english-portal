@@ -198,7 +198,10 @@ test('после слабой попытки можно повторить то�
     Lesson.handleLessonAction('next');
   }
 
-  assert.ok(Lesson.renderLesson().includes('Повторить ошибки'));
+  const result = Lesson.renderLesson();
+  assert.ok(result.includes('Повторить ошибки'));
+  assert.ok(result.includes('Следующий урок пока закрыт'));
+  assert.ok(!result.includes('Продолжить курс'), 'нельзя обойти порог освоения');
   assert.equal(Lesson.handleLessonAction('retry-mistakes'), true);
   assert.ok(Lesson.renderLesson().includes(`1 ИЗ ${LESSON.exercises.length}`));
 });

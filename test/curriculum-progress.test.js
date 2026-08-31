@@ -29,6 +29,14 @@ test('завершённый урок открывает ровно следую
   assert.equal(nextCurriculumStep(progress).lesson.id, lessons[1].id);
 });
 
+test('результат ниже 80% оставляет следующий урок закрытым', () => {
+  const lessons = lessonsForLevel(CURRICULUM[0]);
+  const progress = state({ lessons: { [lessons[0].id]: { score: 79 } } });
+  assert.equal(isLessonUnlocked(progress, lessons[0].id), true, 'слабая попытка остаётся доступной');
+  assert.equal(isLessonUnlocked(progress, lessons[1].id), false, 'новый материал пока не открывается');
+  assert.equal(nextCurriculumStep(progress).lesson.id, lessons[0].id, 'маршрут возвращает к закреплению');
+});
+
 test('milestone открывается после всех уроков уровня', () => {
   const level = CURRICULUM[0];
   const completed = Object.fromEntries(lessonsForLevel(level).map((lesson) => [lesson.id, { score: 80 }]));
@@ -53,3 +61,15 @@ test('старый прогресс на уровне не блокируетс�
   assert.equal(isLevelUnlocked(progress, level), true);
 });
 
+test('пройденный ранее milestone не отправляет назад из-за старых слабых оценок', () => {
+  const firstLevel = CURRICULUM[0];
+  const secondLevel = CURRICULUM[1];
+  const oldLesson = lessonsForLevel(firstLevel)[0];
+  const progress = state({
+    lessons: { [oldLesson.id]: { completedAt: '2026-08-01T00:00:00Z', score: 75 } },
+    milestones: { [firstLevel.id]: { passed: true, bestScore: 80 } },
+  });
+
+  assert.equal(isLessonUnlocked(progress, lessonsForLevel(firstLevel)[1].id), true);
+  assert.equal(nextCurriculumStep(progress).lesson.id, lessonsForLevel(secondLevel)[0].id);
+});

@@ -105,6 +105,33 @@ test('пройденный milestone сохраняется между устр�
   assert.equal(merged.level, 'A1');
 });
 
+test('составной milestone сохраняет свежие секции и лучшие результаты', () => {
+  const local = baseState({
+    milestones: {
+      a1: {
+        attempts: 1, bestScore: 83, lastScore: 83, sections: { knowledge: 83, reading: 67, listening: 100 },
+        bestSections: { knowledge: 83, reading: 67, listening: 100 }, passed: true,
+        completedAt: '2026-09-01T09:00:00Z', lastAttemptAt: '2026-09-01T09:00:00Z', formatVersion: 2, questionCount: 12,
+      },
+    },
+  });
+  const remote = baseState({
+    milestones: {
+      a1: {
+        attempts: 2, bestScore: 92, lastScore: 75, sections: { knowledge: 67, reading: 100, listening: 67 },
+        bestSections: { knowledge: 83, reading: 100, listening: 100 }, passed: true,
+        completedAt: '2026-09-01T09:00:00Z', lastAttemptAt: '2026-09-01T11:00:00Z', formatVersion: 2, questionCount: 12,
+      },
+    },
+  });
+
+  const milestone = mergeState(local, remote, TODAY).milestones.a1;
+  assert.equal(milestone.bestScore, 92);
+  assert.equal(milestone.lastScore, 75);
+  assert.deepEqual(milestone.sections, { knowledge: 67, reading: 100, listening: 67 });
+  assert.deepEqual(milestone.bestSections, { knowledge: 83, reading: 100, listening: 100 });
+});
+
 test('свежий успешный ответ снимает ошибку после синхронизации', () => {
   const local = baseState({
     cards: {

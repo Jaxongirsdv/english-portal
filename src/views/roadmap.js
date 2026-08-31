@@ -9,6 +9,7 @@ import {
   nextCurriculumStep,
 } from '../core/curriculum-progress.js';
 import { esc, progressBar, plural } from '../core/ui.js';
+import { lessonStage } from '../core/lesson-progress.js';
 
 /** С какого отставания предупреждение перестаёт быть придиркой. */
 const DEBT_THRESHOLD = 15;
@@ -59,7 +60,7 @@ export function renderRoadmap() {
       const levelUnlocked = isLevelUnlocked(state, level);
       const milestone = state.milestones?.[level.id];
       const milestoneUnlocked = isMilestoneUnlocked(state, level.id);
-      const collapsed = complete && milestone?.passed;
+      const collapsed = !!milestone?.passed;
       const current = next?.level.id === level.id;
 
       return `
@@ -78,7 +79,7 @@ export function renderRoadmap() {
           <div data-level-body="${esc(level.id)}" ${collapsed ? 'hidden' : ''}>
           ${levelUnlocked ? level.units
             .map((unit) => {
-              const uDone = unit.lessons.filter((l) => state.lessons[l.id]).length;
+              const uDone = unit.lessons.filter((l) => lessonStage(state.lessons[l.id]) === 'mastered').length;
               const planned = unit.planned || unit.lessons.length === 0;
               return `
                 <div class="unit${planned ? ' unit-planned' : ''}">
@@ -100,13 +101,15 @@ export function renderRoadmap() {
                 <div data-unit-body="${esc(unit.id)}" hidden style="padding-left:46px">
                   ${unit.lessons
                     .map((lesson) => {
-                      const isDone = !!state.lessons[lesson.id];
+                      const stage = lessonStage(state.lessons[lesson.id]);
+                      const isDone = stage === 'mastered';
+                      const needsWork = stage === 'attempted' || stage === 'completed';
                       const unlocked = isLessonUnlocked(state, lesson.id);
                       return `
                         <button class="lesson-row${unlocked ? '' : ' lesson-row--locked'}" ${unlocked ? `data-nav="lesson:${esc(lesson.id)}"` : 'disabled'}>
-                          <span class="lesson-check${isDone ? ' done' : ''}">${isDone ? '✓' : unlocked ? '→' : '×'}</span>
+                          <span class="lesson-check${isDone ? ' done' : needsWork ? ' needs-work' : ''}">${isDone ? '✓' : needsWork ? '!' : unlocked ? '→' : '×'}</span>
                           <span style="flex:1">${esc(lesson.title)}</span>
-                          <span class="faint">${unlocked ? `${lesson.duration} мин` : 'сначала предыдущий'}</span>
+                          <span class="faint">${needsWork ? `${state.lessons[lesson.id].score || 0}% · закрепить` : unlocked ? `${lesson.duration} мин` : 'сначала 80% в предыдущем'}</span>
                         </button>`;
                     })
                     .join('')}
@@ -116,7 +119,7 @@ export function renderRoadmap() {
 
           ${levelUnlocked ? `<div class="milestone-row${milestoneUnlocked ? ' milestone-row--open' : ''}${milestone?.passed ? ' milestone-row--done' : ''}">
             <div class="milestone-row__icon">${milestone?.passed ? '✓' : milestoneUnlocked ? 'M' : '×'}</div>
-            <div><strong>Milestone ${esc(level.code)}</strong><div class="faint">${milestone?.passed ? `Пройдено · лучший результат ${milestone.bestScore}%` : milestoneUnlocked ? '5 вопросов · нужно 80%' : `Откроется после ${total - done} оставшихся уроков`}</div></div>
+            <div><strong>Milestone ${esc(level.code)}</strong><div class="faint">${milestone?.passed ? `Пройдено · лучший результат ${milestone.bestScore}%` : milestoneUnlocked ? '12 заданий · язык, Reading, Listening · нужно 80%' : `Откроется после ${total - done} оставшихся уроков`}</div></div>
             ${milestoneUnlocked && !milestone?.passed ? `<button class="btn btn-primary" data-nav="milestone:${esc(level.id)}">Пройти</button>` : ''}
           </div>` : ''}
           </div>

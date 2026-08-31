@@ -12,6 +12,7 @@
  */
 
 import { isGrammarCard } from './srs.js';
+import { LESSON_COMPLETE_PERCENT, LESSON_MASTERY_PERCENT, lessonScore } from './lesson-progress.js';
 
 /** Слово выучено при интервале 21 день — та же граница, что в srs.js. */
 const MASTERED_DAYS = 21;
@@ -73,7 +74,17 @@ function mergeCards(local = {}, remote = {}) {
   return out;
 }
 
-/** Урок пройден — значит пройден. Оставляем первое прохождение и лучший результат. */
+function earliest(...values) {
+  return values.filter(Boolean).sort()[0] || null;
+}
+
+function latestLessonSource(a, b) {
+  const aAt = a.lastAttemptAt || a.attemptedAt || a.completedAt || '';
+  const bAt = b.lastAttemptAt || b.attemptedAt || b.completedAt || '';
+  return bAt > aAt ? b : a;
+}
+
+/** Сохраняем лучший результат, первую попытку и самую свежую попытку. */
 function mergeLessons(local = {}, remote = {}) {
   const out = {};
   for (const id of new Set([...Object.keys(local), ...Object.keys(remote)])) {
@@ -83,10 +94,33 @@ function mergeLessons(local = {}, remote = {}) {
       out[id] = a || b;
       continue;
     }
-    out[id] = {
-      completedAt: a.completedAt <= b.completedAt ? a.completedAt : b.completedAt,
-      score: Math.max(a.score ?? 0, b.score ?? 0),
-    };
+    const score = Math.max(lessonScore(a), lessonScore(b));
+    const newest = latestLessonSource(a, b);
+    const attemptedAt = earliest(a.attemptedAt || a.completedAt, b.attemptedAt || b.completedAt);
+    const completedAt = score >= LESSON_COMPLETE_PERCENT
+      ? earliest(
+        lessonScore(a) >= LESSON_COMPLETE_PERCENT ? a.completedAt || a.attemptedAt : null,
+        lessonScore(b) >= LESSON_COMPLETE_PERCENT ? b.completedAt || b.attemptedAt : null,
+      )
+      : null;
+    const masteredAt = score >= LESSON_MASTERY_PERCENT
+      ? earliest(
+        lessonScore(a) >= LESSON_MASTERY_PERCENT ? a.masteredAt || a.completedAt || a.attemptedAt : null,
+        lessonScore(b) >= LESSON_MASTERY_PERCENT ? b.masteredAt || b.completedAt || b.attemptedAt : null,
+      )
+      : null;
+    const hasMasteryFields = [a, b].some((entry) => entry.attemptedAt || entry.masteredAt || entry.lastAttemptAt);
+    out[id] = hasMasteryFields
+      ? {
+        attemptedAt,
+        completedAt,
+        masteredAt,
+        lastAttemptAt: [a.lastAttemptAt, b.lastAttemptAt].filter(Boolean).sort().at(-1) || attemptedAt,
+        attempts: Math.max(a.attempts || 1, b.attempts || 1),
+        score,
+        lastScore: newest.lastScore ?? lessonScore(newest),
+      }
+      : { completedAt: earliest(a.completedAt, b.completedAt), score };
   }
   return out;
 }
@@ -101,9 +135,30 @@ function mergeMilestones(local = {}, remote = {}) {
       continue;
     }
     const completed = [a.completedAt, b.completedAt].filter(Boolean).sort()[0] || null;
+    const latestA = a.lastAttemptAt || a.completedAt || '';
+    const latestB = b.lastAttemptAt || b.completedAt || '';
+    const newest = latestB > latestA ? b : a;
+    const sectionNames = new Set([
+      ...Object.keys(a.bestSections || {}),
+      ...Object.keys(b.bestSections || {}),
+    ]);
+    const bestSections = Object.fromEntries([...sectionNames].map((name) => [
+      name,
+      Math.max(a.bestSections?.[name] || 0, b.bestSections?.[name] || 0),
+    ]));
     out[id] = {
       attempts: Math.max(a.attempts || 0, b.attempts || 0),
       bestScore: Math.max(a.bestScore || 0, b.bestScore || 0),
+      ...(a.lastScore !== undefined || b.lastScore !== undefined
+        ? {
+          lastScore: newest.lastScore ?? newest.bestScore ?? 0,
+          sections: { ...(newest.sections || {}) },
+          bestSections,
+          lastAttemptAt: [a.lastAttemptAt, b.lastAttemptAt].filter(Boolean).sort().at(-1) || null,
+          formatVersion: Math.max(a.formatVersion || 1, b.formatVersion || 1),
+          questionCount: newest.questionCount || 0,
+        }
+        : {}),
       passed: !!(a.passed || b.passed),
       completedAt: completed,
     };

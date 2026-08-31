@@ -12,7 +12,7 @@ const DEFAULT_STATE = {
   xp: 0,
   streak: 0,
   lastStudyDate: null,
-  /** id урока -> { completedAt, score } */
+  /** id урока -> попытки, лучший/последний балл и даты completed/mastered */
   lessons: {},
   /** id уровня -> { attempts, bestScore, passed, completedAt } */
   milestones: {},
@@ -202,7 +202,13 @@ function validateBackup(parsed) {
   if (!isRecord(parsed)) throw new Error('invalid-backup');
 
   assertRecordMap(parsed.lessons, 'lessons', (lesson, name) => {
-    if (!isRecord(lesson) || (lesson.score !== undefined && !isFiniteNonNegative(lesson.score))) {
+    if (!isRecord(lesson)
+      || (lesson.score !== undefined && !isFiniteNonNegative(lesson.score))
+      || (lesson.lastScore !== undefined && !isFiniteNonNegative(lesson.lastScore))
+      || (lesson.attempts !== undefined && !isFiniteNonNegative(lesson.attempts))
+      || ['attemptedAt', 'completedAt', 'masteredAt', 'lastAttemptAt'].some(
+        (field) => lesson[field] !== undefined && lesson[field] !== null && typeof lesson[field] !== 'string',
+      )) {
       throw new Error(`invalid-backup-${name}`);
     }
   });
@@ -210,8 +216,16 @@ function validateBackup(parsed) {
     if (!isRecord(milestone)
       || !isFiniteNonNegative(milestone.attempts || 0)
       || !isFiniteNonNegative(milestone.bestScore || 0)
+      || !isFiniteNonNegative(milestone.lastScore || 0)
+      || !isFiniteNonNegative(milestone.formatVersion || 0)
+      || !isFiniteNonNegative(milestone.questionCount || 0)
       || (milestone.passed !== undefined && typeof milestone.passed !== 'boolean')
-      || (milestone.completedAt !== undefined && milestone.completedAt !== null && typeof milestone.completedAt !== 'string')) {
+      || ['completedAt', 'lastAttemptAt'].some(
+        (field) => milestone[field] !== undefined && milestone[field] !== null && typeof milestone[field] !== 'string',
+      )
+      || ['sections', 'bestSections'].some((field) => milestone[field] !== undefined
+        && (!isRecord(milestone[field])
+          || Object.values(milestone[field]).some((score) => !isFiniteNonNegative(score))))) {
       throw new Error(`invalid-backup-${name}`);
     }
   });

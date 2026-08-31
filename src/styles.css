@@ -719,6 +719,7 @@ p { margin: 0 0 12px; }
   flex-shrink: 0;
 }
 .lesson-check.done { background: var(--green); border-color: var(--green); color: #0f1115; }
+.lesson-check.needs-work { background: var(--amber-soft); border-color: var(--amber); color: var(--amber); font-weight: 800; }
 
 .level-card--locked { background: color-mix(in srgb, var(--bg-elev) 70%, var(--bg)); }
 .roadmap-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .7fr); align-items: stretch; gap: 18px; margin: 12px 0 18px; }
@@ -777,6 +778,22 @@ p { margin: 0 0 12px; }
 }
 .milestone-row--done .milestone-row__icon { background: var(--green-soft); color: var(--green); }
 .milestone-card { max-width: 760px; margin: 4vh auto 0; }
+.milestone-section-head { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; }
+.milestone-section-head div span, .milestone-section-head div strong { display:block; }
+.milestone-section-head div span { color:var(--accent); font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.milestone-section-head div strong { margin-top:2px; font-size:18px; }
+.milestone-section-head small { color:var(--text-faint); }
+.milestone-source { margin:18px 0 -8px; }
+.milestone-passage { max-height:280px; margin-top:20px; padding:20px; overflow:auto; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); line-height:1.65; }
+.milestone-passage div span, .milestone-passage div strong { display:block; }
+.milestone-passage div span { color:var(--accent); font-size:10px; font-weight:800; letter-spacing:.08em; }
+.milestone-passage div strong { margin-top:3px; }
+.milestone-passage p { margin:12px 0 0; }
+.milestone-listening { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:20px; padding:20px; border:1px solid #ffffff28; border-radius:var(--radius-sm); background:linear-gradient(135deg,#123735,#28665c); color:#fff9ee; }
+.milestone-listening > div:first-child span, .milestone-listening > div:first-child strong, .milestone-listening > div:first-child small { display:block; }
+.milestone-listening > div:first-child span { color:#f2a184; font-size:10px; font-weight:800; letter-spacing:.08em; }
+.milestone-listening > div:first-child strong { margin:4px 0; }
+.milestone-listening > div:first-child small { color:#c8ddd4; }
 .milestone-result { max-width: 680px; margin: 6vh auto 0; text-align: center; }
 .milestone-result__mark {
   width: 86px;
@@ -790,6 +807,14 @@ p { margin: 0 0 12px; }
   font-size: 28px;
   font-weight: 800;
 }
+.milestone-skill-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:24px 0; }
+.milestone-skill { padding:16px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); }
+.milestone-skill span, .milestone-skill strong, .milestone-skill small { display:block; }
+.milestone-skill span { color:var(--text-faint); font-size:11px; }
+.milestone-skill strong { margin:5px 0; color:var(--green); font-size:25px; }
+.milestone-skill small { color:var(--text-dim); }
+.milestone-skill.is-weak { border-color:var(--amber); background:var(--amber-soft); }
+.milestone-skill.is-weak strong { color:var(--amber); }
 
 /* ---------- Теория ---------- */
 
@@ -1266,6 +1291,11 @@ table.theory tr:last-child td { border-bottom: none; }
 }
 
 @media (max-width: 680px) {
+  .milestone-listening { align-items:flex-start; flex-direction:column; }
+  .milestone-listening .row { width:100%; }
+  .milestone-listening .btn { flex:1; }
+  .milestone-skill-grid { grid-template-columns:1fr; }
+  .milestone-passage { max-height:230px; padding:16px; }
   .grid-2 { grid-template-columns: 1fr; }
   .onboarding__steps { grid-template-columns: 1fr; }
   .review-hub__intro { align-items: stretch; flex-direction: column; gap: 14px; }

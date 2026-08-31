@@ -2,6 +2,12 @@ import { findLesson } from '../data/curriculum.js';
 import { getWord } from '../data/vocab.js';
 import { loadState, update, addXp, touchStudyDay } from '../core/storage.js';
 import { nextCurriculumStep } from '../core/curriculum-progress.js';
+import {
+  LESSON_COMPLETE_PERCENT,
+  LESSON_MASTERY_PERCENT,
+  isLessonMastered,
+  lessonAttempt,
+} from '../core/lesson-progress.js';
 import { esc, speakBtn, shuffle, normalize, plural } from '../core/ui.js';
 import { speak } from '../core/speech.js';
 import { scoreAttempt, VERDICT } from '../core/compare.js';
@@ -291,17 +297,19 @@ function renderDone() {
   const { lesson, exercises, correct } = s;
   const total = exercises.length;
   const pct = Math.round((correct / total) * 100);
+  const mastered = pct >= LESSON_MASTERY_PERCENT;
+  const completed = pct >= LESSON_COMPLETE_PERCENT;
   const words = lesson.vocab.length;
   const next = nextCurriculumStep(loadState());
   return `
     ${renderLessonHeader('done')}
     <div class="lesson-complete">
-      <div class="lesson-complete__mark">${pct >= 80 ? '🎉' : pct >= 50 ? '👍' : '💪'}</div>
-      <div class="dashboard-kicker">УРОК ЗАВЕРШЁН</div>
-      <h1>${pct >= 80 ? 'Материал усвоен' : 'Закрепим сложные места'}</h1>
+      <div class="lesson-complete__mark">${mastered ? '🎉' : completed ? '↻' : '!'}</div>
+      <div class="dashboard-kicker">${mastered ? 'УРОК ОСВОЕН' : completed ? 'ПРАКТИКА ЗАВЕРШЕНА' : 'ПОПЫТКА ЗАВЕРШЕНА'}</div>
+      <h1>${mastered ? 'Материал усвоен' : completed ? `Закрепи результат до ${LESSON_MASTERY_PERCENT}%` : 'Сначала повтори объяснение'}</h1>
       <p class="subtitle">${correct} из ${total} верно · ${pct}% результата</p>
       <div class="lesson-complete__stats">
-        <div><strong>${s.completionXp ? `+${s.completionXp}` : 'Повтор'}</strong><span>${s.completionXp ? 'XP за урок' : 'без повторного XP'}</span></div>
+        <div><strong>+${s.completionXp}</strong><span>бонус за освоение</span></div>
         <div><strong>${correct}/${total}</strong><span>правильных ответов</span></div>
         <div><strong>${s.mistakes.length}</strong><span>нужно повторить</span></div>
       </div>
@@ -311,10 +319,11 @@ function renderDone() {
              теперь они в очереди повторений.</p>`
           : ''
       }
-      ${pct < 80 && s.mistakes.length ? '<div class="callout warn"><span class="callout-label">Рекомендация</span>Повтори только задания, где были ошибки. Это займёт несколько минут и закрепит слабое место.</div>' : '<div class="callout tip"><span class="callout-label">Готово</span>Следующий урок открыт. Новые слова уже добавлены в повторение.</div>'}
+      ${!mastered && s.mistakes.length
+        ? `<div class="callout warn"><span class="callout-label">Следующий урок пока закрыт</span>${completed ? 'Повтори только ошибки и подними результат до 80%.' : 'Вернись к теории или повтори ошибки. Для освоения нужно 80%.'}</div>`
+        : '<div class="callout tip"><span class="callout-label">Освоено</span>Следующий урок открыт. Новые слова уже добавлены в повторение.</div>'}
       <div class="row lesson-complete__actions" style="justify-content:center">
-        ${pct < 80 && s.mistakes.length ? '<button class="btn btn-primary btn-lg" data-lesson-action="retry-mistakes">Повторить ошибки</button>' : next ? `<button class="btn btn-primary btn-lg" data-nav="${esc(next.route)}">${next.type === 'milestone' ? `Пройти milestone ${esc(next.level.code)}` : 'Следующий урок'} →</button>` : ''}
-        ${pct < 80 && next ? `<button class="btn btn-lg" data-nav="${esc(next.route)}">Продолжить курс</button>` : ''}
+        ${!mastered && s.mistakes.length ? '<button class="btn btn-primary btn-lg" data-lesson-action="retry-mistakes">Повторить ошибки</button>' : next ? `<button class="btn btn-primary btn-lg" data-nav="${esc(next.route)}">${next.type === 'milestone' ? `Пройти milestone ${esc(next.level.code)}` : 'Следующий урок'} →</button>` : ''}
         <button class="btn btn-lg" data-nav="review">Повторить слова</button>
         <button class="btn btn-lg" data-nav="roadmap">К списку уроков</button>
       </div>
@@ -422,17 +431,14 @@ export function handleLessonAction(action, el) {
         resetExercise(false);
       } else {
         const score = Math.round((s.correct / s.exercises.length) * 100);
-        let firstCompletion = false;
+        let firstMastery = false;
         update((st) => {
           const previous = st.lessons[s.lesson.id];
-          firstCompletion = !previous;
-          st.lessons[s.lesson.id] = {
-            completedAt: previous?.completedAt || new Date().toISOString(),
-            score: Math.max(previous?.score || 0, score),
-          };
+          firstMastery = score >= LESSON_MASTERY_PERCENT && !isLessonMastered(previous);
+          st.lessons[s.lesson.id] = lessonAttempt(previous, score);
         });
-        s.completionXp = firstCompletion ? 25 : 0;
-        if (firstCompletion) addXp(25);
+        s.completionXp = firstMastery ? 25 : 0;
+        if (firstMastery) addXp(25);
         s.phase = 'done';
       }
       return true;
