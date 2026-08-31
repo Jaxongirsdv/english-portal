@@ -35,7 +35,9 @@ function baseState(over = {}) {
     audioTexts: {},
     dialogue: { turns: 0, offlineCompleted: 0, completedScenarios: [] },
     b2Practice: { speakingDone: 0 },
+    b2Training: { Reading: {}, Listening: {}, Writing: {}, Speaking: {} },
     b2Mock: { completed: {}, scores: {} },
+    b2FullMock: null,
     settings: { voiceRate: 0.9, dailyGoal: 20, apiKey: 'local-key' },
     ...over,
   };
@@ -228,6 +230,41 @@ test('новые тренажёры не теряют прогресс межд�
   assert.equal(merged.b2Practice.speakingDone, 4);
   assert.deepEqual(merged.b2Mock.completed, { Reading: true, Listening: true });
   assert.equal(merged.b2Mock.scores.Reading, 90);
+});
+
+test('B2 Reading и Listening сохраняют лучший и последний результат', () => {
+  const local = baseState({
+    b2Training: { Reading: { p1: { score: 90, lastScore: 90, at: '2026-08-30T10:00:00Z' } }, Listening: {}, Writing: {}, Speaking: {} },
+  });
+  const remote = baseState({
+    b2Training: { Reading: { p1: { score: 70, lastScore: 70, at: '2026-08-31T10:00:00Z' } }, Listening: { p2: { score: 80, lastScore: 80, at: '2026-08-31T11:00:00Z' } }, Writing: {}, Speaking: {} },
+  });
+  const merged = mergeState(local, remote, TODAY).b2Training;
+  assert.equal(merged.Reading.p1.score, 90);
+  assert.equal(merged.Reading.p1.lastScore, 70);
+  assert.equal(merged.Listening.p2.score, 80);
+});
+
+test('новая диагностика не получает завершённые части из старой попытки', () => {
+  const local = baseState({
+    b2Mock: {
+      completed: {}, scores: {}, history: [],
+      currentStartedAt: '2026-08-20T10:00:00Z', currentSavedAt: null,
+    },
+  });
+  const remote = baseState({
+    b2Mock: {
+      completed: { Reading: true }, scores: { Reading: 100 },
+      history: [{ id: 'old', at: '2026-08-19T12:00:00Z', overall: 70 }],
+      currentStartedAt: '2026-08-19T10:00:00Z', currentSavedAt: '2026-08-19T12:00:00Z',
+    },
+  });
+
+  const merged = mergeState(local, remote, TODAY).b2Mock;
+  assert.deepEqual(merged.completed, {});
+  assert.deepEqual(merged.scores, {});
+  assert.equal(merged.history.length, 1);
+  assert.equal(merged.currentStartedAt, '2026-08-20T10:00:00Z');
 });
 
 test('дата создания берётся самая ранняя', () => {

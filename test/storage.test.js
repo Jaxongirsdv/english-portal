@@ -111,6 +111,9 @@ test('бэкап со старой версии не ломает состоян
   assert.deepEqual(s.reading, {});
   assert.deepEqual(s.dialogue.completedScenarios, []);
   assert.deepEqual(s.b2Mock.completed, {});
+  assert.deepEqual(s.b2Mock.history, []);
+  assert.deepEqual(s.b2Training, { Reading: {}, Listening: {}, Writing: {}, Speaking: {} });
+  assert.equal(s.b2FullMock, null);
   assert.equal(s.settings.dailyGoal, 20, 'настройки по умолчанию на месте');
 });
 
@@ -146,6 +149,22 @@ test('повреждённые вложенные данные бэкапа не
     /invalid-backup-history/,
   );
   assert.equal(loadState().xp, 42, 'состояние остаётся прежним после обеих ошибок');
+});
+
+test('результаты B2-тренажёров проходят backup и проверку структуры', () => {
+  resetState();
+  update((s) => {
+    s.b2Training.Reading['reading-part-1'] = { score: 83, lastScore: 67, at: '2026-08-31T10:00:00Z' };
+  });
+  const backup = exportState();
+  resetState();
+  importState(backup);
+  assert.equal(loadState().b2Training.Reading['reading-part-1'].score, 83);
+
+  assert.throws(
+    () => importState(JSON.stringify({ b2Training: { Reading: { bad: { score: 'high' } } } })),
+    /invalid-backup-b2Training/,
+  );
 });
 
 test('ошибка localStorage не ломает сохранение в памяти', () => {

@@ -13,9 +13,14 @@ import * as Reading from '../views/reading.js';
 import { renderB2Speaking } from '../views/b2-speaking.js';
 import { renderB2Mock } from '../views/b2-mock.js';
 import { renderMilestone } from '../views/milestone.js';
+import { renderExam } from '../views/exam.js';
+import { renderB2Objective } from '../views/b2-objective.js';
+import { renderB2Writing } from '../views/b2-writing.js';
+import { renderFullMock } from '../views/b2-full-mock.js';
 
 const SCREEN_RENDERERS = {
   dashboard: () => renderDashboard(),
+  exam: () => renderExam(),
   roadmap: () => renderRoadmap(),
   lesson: () => Lesson.renderLesson(),
   milestone: () => renderMilestone(),
@@ -23,6 +28,10 @@ const SCREEN_RENDERERS = {
   pronounce: () => Pronounce.renderPronounce(),
   listening: () => Listening.renderListening(),
   writing: () => Writing.renderWriting(),
+  'b2-reading': () => renderB2Objective('Reading'),
+  'b2-listening': () => renderB2Objective('Listening'),
+  'b2-writing': () => renderB2Writing(),
+  'b2-full-mock': () => renderFullMock(),
   'b2-speaking': () => renderB2Speaking(),
   'b2-mock': () => renderB2Mock(),
   dialogue: () => Dialogue.renderDialogue(),

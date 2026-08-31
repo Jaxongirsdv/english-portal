@@ -8,6 +8,7 @@ export const NAV = [
 
 const SECTION_BY_ROUTE = {
   dashboard: 'dashboard',
+  exam: 'dashboard',
   roadmap: 'roadmap',
   lesson: 'roadmap',
   milestone: 'roadmap',
@@ -17,7 +18,11 @@ const SECTION_BY_ROUTE = {
   pronounce: 'review',
   listening: 'review',
   writing: 'review',
-  'b2-speaking': 'review',
+  'b2-reading': 'dashboard',
+  'b2-listening': 'dashboard',
+  'b2-writing': 'dashboard',
+  'b2-full-mock': 'dashboard',
+  'b2-speaking': 'dashboard',
   'b2-mock': 'dashboard',
   vocab: 'vocab',
   progress: 'progress',
@@ -27,6 +32,10 @@ const SECTION_BY_ROUTE = {
 const ROUTE_NAMES = new Set(Object.keys(SECTION_BY_ROUTE));
 
 const SECTION_TABS = {
+  dashboard: [
+    { id: 'dashboard', label: 'Укрепить базу' },
+    { id: 'exam', label: 'Экзамен B2' },
+  ],
   roadmap: [
     { id: 'roadmap', label: 'Уроки' },
     { id: 'reading', label: 'Чтение' },
@@ -37,7 +46,6 @@ const SECTION_TABS = {
     { id: 'pronounce', label: 'Произношение' },
     { id: 'listening', label: 'Аудирование' },
     { id: 'writing', label: 'Письмо' },
-    { id: 'b2-speaking', label: 'Speaking B2' },
   ],
 };
 

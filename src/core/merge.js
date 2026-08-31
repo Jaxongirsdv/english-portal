@@ -151,6 +151,29 @@ function mergeResults(local = {}, remote = {}) {
   return out;
 }
 
+function mergeB2Training(local = {}, remote = {}) {
+  const out = { Reading: {}, Listening: {}, Writing: {}, Speaking: {} };
+  for (const skill of Object.keys(out)) {
+    const aSkill = local[skill] || {};
+    const bSkill = remote[skill] || {};
+    for (const id of new Set([...Object.keys(aSkill), ...Object.keys(bSkill)])) {
+      const a = aSkill[id];
+      const b = bSkill[id];
+      if (!a || !b) {
+        out[skill][id] = a || b;
+        continue;
+      }
+      const newest = (b.at || '') > (a.at || '') ? b : a;
+      out[skill][id] = {
+        score: Math.max(a.score || 0, b.score || 0),
+        lastScore: newest.lastScore ?? newest.score ?? 0,
+        at: newest.at || null,
+      };
+    }
+  }
+  return out;
+}
+
 function mergeDialogue(local = {}, remote = {}) {
   return {
     turns: Math.max(local.turns || 0, remote.turns || 0),
@@ -163,6 +186,24 @@ function mergeDialogue(local = {}, remote = {}) {
 }
 
 function mergeB2Mock(local = {}, remote = {}) {
+  const historyById = new Map();
+  for (const item of [...(local.history || []), ...(remote.history || [])]) {
+    const previous = historyById.get(item.id);
+    if (!previous || (item.at || '') >= (previous.at || '')) historyById.set(item.id, item);
+  }
+  const history = [...historyById.values()].sort((a, b) => (a.at || '').localeCompare(b.at || '')).slice(-12);
+  const localStarted = local.currentStartedAt || '';
+  const remoteStarted = remote.currentStartedAt || '';
+  if (localStarted !== remoteStarted && (localStarted || remoteStarted)) {
+    const current = remoteStarted > localStarted ? remote : local;
+    return {
+      completed: { ...(current.completed || {}) },
+      scores: { ...(current.scores || {}) },
+      history,
+      currentStartedAt: current.currentStartedAt || null,
+      currentSavedAt: current.currentSavedAt || null,
+    };
+  }
   const completed = {};
   const scores = {};
   for (const part of new Set([
@@ -173,7 +214,13 @@ function mergeB2Mock(local = {}, remote = {}) {
     ...Object.keys(local.scores || {}),
     ...Object.keys(remote.scores || {}),
   ])) scores[part] = Math.max(local.scores?.[part] || 0, remote.scores?.[part] || 0);
-  return { completed, scores };
+  return {
+    completed,
+    scores,
+    history,
+    currentStartedAt: localStarted || remoteStarted || null,
+    currentSavedAt: [local.currentSavedAt, remote.currentSavedAt].filter(Boolean).sort().at(-1) || null,
+  };
 }
 
 function shiftDate(dateStr, days) {
@@ -249,7 +296,9 @@ export function mergeState(local, remote, today) {
     audioTexts: mergeResults(local.audioTexts, remote.audioTexts),
     dialogue: mergeDialogue(local.dialogue, remote.dialogue),
     b2Practice: mergeCounters(local.b2Practice, remote.b2Practice, ['speakingDone']),
+    b2Training: mergeB2Training(local.b2Training, remote.b2Training),
     b2Mock: mergeB2Mock(local.b2Mock, remote.b2Mock),
+    b2FullMock: (remote.b2FullMock?.startedAt || '') > (local.b2FullMock?.startedAt || '') ? remote.b2FullMock : local.b2FullMock,
     // Настройки не синхронизируем — они про устройство, а не про прогресс
     settings: local.settings,
   };

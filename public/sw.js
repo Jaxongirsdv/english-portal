@@ -13,7 +13,7 @@
  * в кэш при первой загрузке, а старые записи вычистятся при смене CACHE.
  */
 
-const CACHE = 'english-portal-v1';
+const CACHE = 'english-portal-v2';
 
 /**
  * Все пути считаем от области действия воркера, а не от корня домена.
@@ -23,8 +23,20 @@ const CACHE = 'english-portal-v1';
 const scope = self.registration.scope;
 const at = (path) => new URL(path, scope).href;
 
-/** Минимум, без которого приложение не откроется офлайн. */
-const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'].map(at);
+const B2_AUDIO = [
+  ...Array.from({ length: 8 }, (_, index) => `./audio/b2/l1-${index + 1}.wav`),
+  ...Array.from({ length: 4 }, (_, index) => `./audio/b2/l3-${index + 1}.wav`),
+  './audio/b2/listening-part-2.wav',
+  './audio/b2/listening-part-4.wav',
+  './audio/b2/listening-part-5.wav',
+  './audio/b2/listening-part-6.wav',
+];
+
+/** Оболочка и экзаменационные аудиофайлы доступны после первой установки. */
+const SHELL = [
+  './', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png',
+  ...B2_AUDIO,
+].map(at);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

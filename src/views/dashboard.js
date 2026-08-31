@@ -47,6 +47,19 @@ export function renderDashboard() {
       <div class="dashboard-streak"><strong>${state.streak}</strong><span>${plural(state.streak, 'день', 'дня', 'дней').replace(/^\d+\s/, '')} подряд</span></div>
     </header>
 
+    <section class="learning-tracks mb-4" aria-label="Выбор маршрута">
+      <article class="learning-track learning-track--base">
+        <div class="learning-track__icon">A→B2</div>
+        <div><span>ТЕКУЩИЙ МАРШРУТ</span><h2>Укрепить базу</h2><p>Уроки по уровням, грамматика, словарь и интервальные повторения.</p></div>
+        <button class="btn btn-primary" data-nav="roadmap">Продолжить курс</button>
+      </article>
+      <article class="learning-track learning-track--exam">
+        <div class="learning-track__icon">B2</div>
+        <div><span>ОТДЕЛЬНЫЙ МАРШРУТ</span><h2>Подготовка к экзамену</h2><p>${sprint.examPassed ? 'Диагностика, четыре навыка и история результатов.' : `${sprint.daysLeft} дней: план, диагностика и практика по времени.`}</p></div>
+        <button class="btn" data-nav="exam">Открыть экзамен B2</button>
+      </article>
+    </section>
+
     ${next
       ? `<section class="dashboard-next dashboard-next--hero mb-4">
           <div class="dashboard-next__content">
@@ -73,12 +86,6 @@ export function renderDashboard() {
         ${progressBar(goalPct, doneToday >= goal)}
         <p class="faint">${doneToday >= goal ? 'Отличный ритм. Завтра продолжим.' : 'Короткие сессии тоже считаются.'}</p>
       </section>
-    </div>
-
-    <div class="dashboard-section-head"><div><div class="dashboard-kicker">ЭКЗАМЕНАЦИОННЫЙ ФОКУС</div><h2>Подготовка к B2</h2></div><span>${sprint.examPassed ? 'цикл завершён' : `${sprint.daysLeft} дн. до экзамена`}</span></div>
-    <div class="dashboard-b2-grid mb-4">
-      ${sprint.task && !sprint.examPassed ? `<section class="card dashboard-b2-task"><div class="dashboard-kicker">ПЛАН НА СЕГОДНЯ</div><h3>${esc(sprint.task.phase)}: ${esc(sprint.task.title)}</h3><p class="faint">${esc(sprint.task.text)}</p><button class="btn btn-primary" data-nav="${esc(sprint.task.action)}">${esc(sprint.task.actionLabel)}</button></section>` : ''}
-      <section class="card dashboard-mock-card"><div class="dashboard-kicker">ДИАГНОСТИКА</div><h3>Мини-пробник B2</h3><p class="faint">Четыре навыка в одном маршруте: Reading, Listening, Writing и Speaking.</p><button class="btn" data-nav="b2-mock">Открыть пробник</button></section>
     </div>
 
     <div class="dashboard-section-head"><div><div class="dashboard-kicker">ОБЩАЯ КАРТИНА</div><h2>Твой прогресс</h2></div><button class="btn btn-ghost" data-nav="progress">Подробнее</button></div>

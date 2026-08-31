@@ -31,7 +31,9 @@ const DEFAULT_STATE = {
   writing: { checked: 0, errorsFound: 0 },
   dialogue: { turns: 0, offlineCompleted: 0, completedScenarios: [] },
   b2Practice: { speakingDone: 0 },
-  b2Mock: { completed: {}, scores: {} },
+  b2Training: { Reading: {}, Listening: {}, Writing: {}, Speaking: {} },
+  b2Mock: { completed: {}, scores: {}, history: [], currentStartedAt: null, currentSavedAt: null },
+  b2FullMock: null,
   settings: {
     voiceRate: 0.9,
     theme: 'light',
@@ -83,7 +85,14 @@ export function loadState() {
     state.milestones = state.milestones || {};
     state.dialogue = state.dialogue || { turns: 0, offlineCompleted: 0, completedScenarios: [] };
     state.b2Practice = state.b2Practice || { speakingDone: 0 };
-    state.b2Mock = state.b2Mock || { completed: {}, scores: {} };
+    state.b2Training = {
+      Reading: {}, Listening: {}, Writing: {}, Speaking: {},
+      ...(state.b2Training || {}),
+    };
+    state.b2Mock = {
+      completed: {}, scores: {}, history: [], currentStartedAt: null, currentSavedAt: null,
+      ...(state.b2Mock || {}),
+    };
   } catch {
     state = clone(DEFAULT_STATE);
   }
@@ -241,9 +250,39 @@ function validateBackup(parsed) {
     }
   }
   if (parsed.b2Practice !== undefined) assertStats(parsed.b2Practice, 'b2Practice', ['speakingDone']);
-  if (parsed.b2Mock !== undefined
-    && (!isRecord(parsed.b2Mock) || !isRecord(parsed.b2Mock.completed || {}) || !isRecord(parsed.b2Mock.scores || {}))) {
-    throw new Error('invalid-backup-b2Mock');
+  if (parsed.b2Training !== undefined) {
+    if (!isRecord(parsed.b2Training)) throw new Error('invalid-backup-b2Training');
+    for (const skill of ['Reading', 'Listening', 'Writing', 'Speaking']) {
+      assertRecordMap(parsed.b2Training[skill], 'b2Training', (result, name) => {
+        if (!isRecord(result)
+          || !isFiniteNonNegative(result.score || 0)
+          || !isFiniteNonNegative(result.lastScore || 0)
+          || (result.at !== undefined && result.at !== null && typeof result.at !== 'string')) {
+          throw new Error(`invalid-backup-${name}`);
+        }
+      });
+    }
+  }
+  if (parsed.b2Mock !== undefined) {
+    if (!isRecord(parsed.b2Mock) || !isRecord(parsed.b2Mock.completed || {}) || !isRecord(parsed.b2Mock.scores || {})) {
+      throw new Error('invalid-backup-b2Mock');
+    }
+    if (Object.values(parsed.b2Mock.completed || {}).some((value) => typeof value !== 'boolean')
+      || Object.values(parsed.b2Mock.scores || {}).some((value) => !isFiniteNonNegative(value))) {
+      throw new Error('invalid-backup-b2Mock');
+    }
+    if (parsed.b2Mock.history !== undefined
+      && (!Array.isArray(parsed.b2Mock.history)
+        || parsed.b2Mock.history.some((item) => !isRecord(item) || typeof item.id !== 'string'
+          || typeof item.at !== 'string' || !isFiniteNonNegative(item.overall)))) {
+      throw new Error('invalid-backup-b2Mock');
+    }
+  }
+  if (parsed.b2FullMock !== undefined && parsed.b2FullMock !== null) {
+    if (!isRecord(parsed.b2FullMock)
+      || (parsed.b2FullMock.score !== undefined && parsed.b2FullMock.score !== null && !isFiniteNonNegative(parsed.b2FullMock.score))) {
+      throw new Error('invalid-backup-b2FullMock');
+    }
   }
   if (parsed.settings !== undefined && !isRecord(parsed.settings)) throw new Error('invalid-backup-settings');
 }

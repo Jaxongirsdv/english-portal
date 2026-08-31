@@ -11,7 +11,7 @@
     "preview": "vite preview --port 4173",
     "start": "npm run build && vite preview --port 4173",
     "preview:pages": "vite preview --base /english-portal/ --port 4174",
-    "test": "node --test test/srs.test.js test/content.test.js test/compare.test.js test/diff.test.js test/merge.test.js test/storage.test.js test/autosync.test.js test/sync.test.js test/ai.test.js test/ui.test.js test/analytics.test.js test/review.test.js test/lesson.test.js test/grammar.test.js test/choices.test.js test/dialogue.test.js test/reading.test.js test/quiz.test.js test/navigation.test.js test/b2-sprint.test.js test/curriculum-progress.test.js"
+    "test": "node --test test/srs.test.js test/content.test.js test/compare.test.js test/diff.test.js test/merge.test.js test/storage.test.js test/autosync.test.js test/sync.test.js test/ai.test.js test/ui.test.js test/analytics.test.js test/review.test.js test/lesson.test.js test/grammar.test.js test/choices.test.js test/dialogue.test.js test/reading.test.js test/quiz.test.js test/navigation.test.js test/b2-sprint.test.js test/b2-multilevel.test.js test/curriculum-progress.test.js"
   },
   "devDependencies": {
     "vite": "^7.1.5"
