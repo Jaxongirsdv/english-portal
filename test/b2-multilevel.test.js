@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { acceptsAnswer, skillTrainingSummary, trainingResult } from '../src/core/b2-training.js';
 import { B2_LISTENING_PARTS, B2_READING_PARTS, MULTILEVEL_FORMAT } from '../src/data/b2-multilevel.js';
 import { B2_WRITING_PARTS } from '../src/data/b2-writing.js';
-import { examReadiness } from '../src/core/b2-readiness.js';
+import { b2DailyFocus, examReadiness } from '../src/core/b2-readiness.js';
 
 test('официальный формат Multilevel зафиксирован отдельно от сокращённой тренировки', () => {
   assert.deepEqual(MULTILEVEL_FORMAT.Reading, { minutes: 60, parts: 5, questions: 35 });
@@ -82,4 +82,21 @@ test('полный пробник не засчитывает результат
   assert.equal(report.skills.Speaking.completed, 0);
   state.b2Training.Speaking.recording.at = fresh;
   assert.equal(examReadiness(state, started).ready, true);
+});
+
+test('ежедневный фокус B2 сначала возвращает к самой слабой части', () => {
+  const state = { b2Training: { Reading: {}, Listening: {}, Writing: {}, Speaking: {} } };
+  state.b2Training.Listening['listening-part-1'] = { lastScore: 62 };
+  state.b2Training.Reading['reading-part-1'] = { lastScore: 45 };
+  const focus = b2DailyFocus(state);
+  assert.equal(focus.kind, 'repair');
+  assert.equal(focus.skill, 'Reading');
+  assert.equal(focus.route, 'b2-reading');
+});
+
+test('ежедневный фокус B2 закрывает формат, когда слабых попыток нет', () => {
+  const state = { b2Training: { Reading: {}, Listening: {}, Writing: {}, Speaking: {} } };
+  const focus = b2DailyFocus(state);
+  assert.equal(focus.kind, 'coverage');
+  assert.equal(focus.skill, 'Reading');
 });

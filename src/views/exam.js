@@ -2,7 +2,7 @@ import { loadState } from '../core/storage.js';
 import { b2Sprint, B2_EXAM_DATE } from '../core/b2-sprint.js';
 import { B2_SKILLS, diagnosticReport } from '../core/b2-diagnostic.js';
 import { skillTrainingSummary } from '../core/b2-training.js';
-import { examReadiness } from '../core/b2-readiness.js';
+import { b2DailyFocus, examReadiness } from '../core/b2-readiness.js';
 import { B2_OBJECTIVE_PARTS } from '../data/b2-multilevel.js';
 import { B2_WRITING_PARTS } from '../data/b2-writing.js';
 import { esc, progressBar } from '../core/ui.js';
@@ -23,8 +23,9 @@ function context() {
   const done = B2_SKILLS.filter((skill) => completed[skill]).length;
   const report = done === B2_SKILLS.length ? diagnosticReport(scores) : null;
   const readiness = examReadiness(state);
+  const dailyFocus = b2DailyFocus(state);
   const examDate = new Date(`${B2_EXAM_DATE}T00:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-  return { state, sprint, completed, scores, done, report, readiness, examDate };
+  return { state, sprint, completed, scores, done, report, readiness, dailyFocus, examDate };
 }
 
 function hero(sprint, examDate, title, text) {
@@ -62,10 +63,10 @@ function skillCard(state, completed, scores, skill) {
 
 export function renderExam() {
   const data = context();
-  const { sprint, readiness, examDate } = data;
+  const { sprint, readiness, dailyFocus, examDate } = data;
   const next = readiness.focus;
   return `${hero(sprint, examDate, 'Сегодня в подготовке B2', 'Только экзаменационный формат, время и четыре навыка. Уроки базы сюда не смешиваются.')}
-    ${sprint.task && !sprint.examPassed ? `<section class="exam-today"><div class="exam-today__date">СЕГОДНЯ</div><div><span>${esc(sprint.task.phase)}</span><h2>${esc(sprint.task.title)}</h2><p>${esc(sprint.task.text)}</p></div><button class="btn btn-primary" data-nav="${esc(sprint.task.action)}">${esc(sprint.task.actionLabel)}</button></section>` : ''}
+    <section class="exam-today exam-today--adaptive"><div class="exam-today__date">СЕГОДНЯ · ${esc(dailyFocus.skill)}</div><div><span>${dailyFocus.kind === 'repair' ? 'СНАЧАЛА ИСПРАВЬ ПРОБЕЛ' : dailyFocus.kind === 'coverage' ? 'ЗАКРОЙ ФОРМАТ' : 'УКРЕПИ РЕЗУЛЬТАТ'}</span><h2>${esc(dailyFocus.title)}</h2><p>${esc(dailyFocus.text)}</p></div><button class="btn btn-primary" data-nav="${esc(dailyFocus.route)}">${esc(dailyFocus.action)}</button></section>
     <section class="exam-focus card"><div><div class="dashboard-kicker">АДАПТИВНЫЙ СЛЕДУЮЩИЙ ШАГ</div><h2>${readiness.ready ? `Укрепить ${esc(next.skill)}` : `Продолжить ${esc(next.skill)}`}</h2><p class="faint">${readiness.ready ? `Сейчас это самый слабый навык: ${next.score}%.` : `Завершено ${next.completed} из ${next.total} обязательных частей.`}</p></div><button class="btn btn-primary" data-nav="${next.route}">Начать тренировку</button></section>
     <div class="exam-home-links mt-4"><button class="card" data-nav="exam-skills"><span>01</span><strong>Навыки</strong><small>Reading, Listening, Writing, Speaking</small></button><button class="card" data-nav="exam-mocks"><span>02</span><strong>Пробники</strong><small>Диагностика и полная репетиция</small></button><button class="card" data-nav="exam-readiness"><span>03</span><strong>Готовность</strong><small>Результат и слабейший навык</small></button></div>
     ${baseBridge()}`;
