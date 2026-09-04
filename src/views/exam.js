@@ -5,6 +5,7 @@ import { skillTrainingSummary } from '../core/b2-training.js';
 import { b2DailyFocus, examReadiness } from '../core/b2-readiness.js';
 import { B2_OBJECTIVE_PARTS } from '../data/b2-multilevel.js';
 import { B2_WRITING_PARTS } from '../data/b2-writing.js';
+import { foundationSupportFor } from '../core/program-bridge.js';
 import { esc, progressBar } from '../core/ui.js';
 
 const SKILL_META = {
@@ -34,6 +35,12 @@ function hero(sprint, examDate, title, text) {
 
 function baseBridge() {
   return `<section class="exam-base-bridge mt-6"><div><div class="dashboard-kicker">НУЖНО УКРЕПИТЬ ЯЗЫК?</div><h2>Перейти в программу «База»</h2><p>Уроки, словарь и обычная практика находятся отдельно и не засчитываются как экзаменационные задания.</p></div><button class="btn" data-program="foundation">Открыть базу</button></section>`;
+}
+
+function focusedBaseBridge(skill) {
+  const support = foundationSupportFor(skill);
+  if (!support) return '';
+  return `<section class="exam-base-bridge exam-base-bridge--focused"><div><div class="dashboard-kicker">ТОЧЕЧНАЯ ПОДДЕРЖКА ИЗ «БАЗЫ»</div><h2>${esc(support.title)}</h2><p>${esc(support.text)} Базовая тренировка не изменит результат B2 — после неё вернись к экзаменационной части.</p></div><button class="btn" data-nav="${esc(support.route)}">Открыть тренировку</button></section>`;
 }
 
 function diagnosticCard({ done, report }) {
@@ -104,8 +111,9 @@ function weakAttempts(state) {
 export function renderExamErrors() {
   const { state, sprint, examDate } = context();
   const weak = weakAttempts(state);
+  const weakest = weak[0];
   return `${hero(sprint, examDate, 'Экзаменационные ошибки', 'Здесь собраны только слабые части экзаменационных тренировок. Ошибки словаря и уроков остаются в программе «База».')}
-    ${weak.length ? `<div class="exam-error-list">${weak.map((item) => `<article class="card"><div><span>${esc(item.skill)}</span><h2>${esc(item.title)}</h2><p>Последний результат ниже порога 70%.</p></div><strong>${item.score}%</strong><button class="btn btn-primary" data-nav="${item.route}">Повторить часть</button></article>`).join('')}</div>` : `<section class="empty card"><div class="empty-icon">✓</div><h2>Слабые части пока не найдены</h2><p>Пройди диагностику или одну из экзаменационных тренировок — результаты ниже 70% появятся здесь.</p><button class="btn btn-primary mt-4" data-nav="exam-mocks">Открыть пробники</button></section>`}`;
+    ${weak.length ? `<div class="exam-error-list">${weak.map((item) => `<article class="card"><div><span>${esc(item.skill)}</span><h2>${esc(item.title)}</h2><p>Последний результат ниже порога 70%.</p></div><strong>${item.score}%</strong><button class="btn btn-primary" data-nav="${item.route}">Повторить часть</button></article>`).join('')}</div>${focusedBaseBridge(weakest.skill)}` : `<section class="empty card"><div class="empty-icon">✓</div><h2>Слабые части пока не найдены</h2><p>Пройди диагностику или одну из экзаменационных тренировок — результаты ниже 70% появятся здесь.</p><button class="btn btn-primary mt-4" data-nav="exam-mocks">Открыть пробники</button></section>`}`;
 }
 
 export function renderExamReadiness() {
