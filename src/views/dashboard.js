@@ -4,6 +4,7 @@ import { dueCardIds, stats } from '../core/srs.js';
 import { CURRICULUM, allLessons } from '../data/curriculum.js';
 import { nextCurriculumStep } from '../core/curriculum-progress.js';
 import { insights } from '../core/analytics.js';
+import { dailyPlan } from '../core/daily-plan.js';
 import { esc, progressBar, plural } from '../core/ui.js';
 
 export function renderDashboard() {
@@ -19,6 +20,7 @@ export function renderDashboard() {
   const doneToday = todayCount();
   const goalPct = Math.min(100, (doneToday / goal) * 100);
   const [topInsight] = insights(state);
+  const plan = dailyPlan(state);
 
   if (state.onboardingDone !== true) {
     return `
@@ -45,16 +47,10 @@ export function renderDashboard() {
       <div class="dashboard-streak"><strong>${state.streak}</strong><span>${plural(state.streak, 'день', 'дня', 'дней').replace(/^\d+\s/, '')} подряд</span></div>
     </header>
 
-    ${next
-      ? `<section class="dashboard-next dashboard-next--hero mb-4">
-          <div class="dashboard-next__content">
-            <div class="dashboard-kicker">СЛЕДУЮЩИЙ ШАГ · ${esc(next.level.code)}</div>
-            <h2>${next.type === 'milestone' ? `Milestone уровня ${esc(next.level.code)}` : esc(next.lesson.title)}</h2>
-            <p>${next.type === 'milestone' ? 'Итоговая проверка откроет следующий уровень.' : `${esc(next.lesson.unitTitle)} · ${next.lesson.duration} минут`}</p>
-          </div>
-          <button class="btn btn-primary btn-lg dashboard-next__action" data-nav="${esc(next.route)}">${next.type === 'milestone' ? 'Пройти milestone' : 'Начать урок'} <span aria-hidden="true">→</span></button>
-        </section>`
-      : `<section class="card dashboard-next mb-4"><div><div class="dashboard-kicker">ПРОГРАММА ЗАВЕРШЕНА</div><h2>Все доступные уровни пройдены</h2></div><button class="btn" data-nav="review">Перейти к повторению</button></section>`}
+    <section class="daily-plan mb-4" aria-label="План на сегодня">
+      <div class="dashboard-section-head"><div><div class="dashboard-kicker">ПЛАН НА СЕГОДНЯ</div><h2>Три понятных шага</h2></div><span>сначала важное</span></div>
+      <div class="daily-plan__list">${plan.map((item, index) => `<article class="daily-plan__item daily-plan__item--${esc(item.kind)}"><span class="daily-plan__number">0${index + 1}</span><div><div class="dashboard-kicker">${esc(item.label)}</div><h3>${esc(item.title)}</h3><p>${esc(item.text)}</p></div><button class="btn${index === 0 ? ' btn-primary' : ''}" data-nav="${esc(item.route)}">${esc(item.action)}</button></article>`).join('')}</div>
+    </section>
 
     <div class="dashboard-section-head"><div><div class="dashboard-kicker">СЕГОДНЯ</div><h2>Закрепить результат</h2></div><span>${doneToday} из ${goal} повторений</span></div>
     <div class="dashboard-today-grid mb-4">
